@@ -154,6 +154,8 @@ input.in.r{text-align:right;font-variant-numeric:tabular-nums}
 /* results */
 .results-head{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:16px 18px 6px}
 .results-head .date{color:var(--muted);font-size:13px}
+.results-head .who{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--muted)}
+.results-head .who b{color:var(--ink);font-weight:600}
 .kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
 .kpi{background:var(--surface);padding:12px 18px}
 .kpi .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
@@ -218,6 +220,36 @@ table.t tr.off td{color:var(--muted)}
 .lib-item .cat{margin-left:auto}
 details.lib summary{cursor:pointer;color:var(--muted);font-size:12.5px;font-weight:500;padding:4px 0}
 .sample-flag{font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:999px}
+.print-only{display:none}
+@media print{
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
+    color-scheme:light;
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#EEF1EF; --ink:#111816; --muted:#4F5A55; --faint:#7D8883;
+    --line:#D3DAD6; --line-strong:#AEB8B3; --accent:#1E4D6B; --accent-ink:#FFFFFF; --accent-soft:#E2ECF2;
+    --b1:#2B7BA0; --b2:#BF8829; --b3:#3B8656; --b4:#8659A4; --b5:#B4513A;
+    --good:#2C7A4B; --good-soft:#E1F1E7; --warn:#9A6212; --warn-soft:#FBF0DC; --bad:#B0281F; --bad-soft:#FBE4E1; --shadow:none;
+  }
+  @page{margin:0.45in}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:#fff;font-size:11.5px}
+  .topbar,#inputsCol,.no-print,.toast{display:none!important}
+  .wrap{max-width:none;padding:0}
+  .layout{display:block}
+  .panel{border:0;box-shadow:none;border-radius:0}
+  .print-only{display:block}
+  .print-meta{display:inline;color:var(--muted);font-size:12px}
+  .print-foot{padding:14px 18px 0;color:var(--muted);font-size:10.5px;border-top:1px solid var(--line);margin-top:8px}
+  .tscroll{overflow:visible}
+  table.t{font-size:10.5px}
+  table.t th,table.t td{padding:5px 7px}
+  tr,.bcard,.acard,.kpi,.warn-line{break-inside:avoid;page-break-inside:avoid}
+  thead{display:table-header-group}
+  tfoot{display:table-row-group}
+  .sec-h{break-after:avoid;page-break-after:avoid}
+  .print-break{break-before:page;page-break-before:always;border-top:0}
+  .bsum{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .acards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
 @media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
 </style>
 </head>
@@ -242,6 +274,8 @@ details.lib summary{cursor:pointer;color:var(--muted);font-size:12.5px;font-weig
       <div class="pop-wrap">
         <button class="btn" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export ▾</button>
         <div class="pop" id="exportPop" hidden>
+          <button class="item" data-exp="pdf"><span>Save as PDF / Print</span><span class="meta">.pdf</span></button>
+          <div class="sep"></div>
           <button class="item" data-exp="copy"><span>Copy tables for Excel</span><span class="meta">clipboard</span></button>
           <button class="item" data-exp="csv"><span>Download CSV</span><span class="meta">.csv</span></button>
           <div class="sep"></div>
@@ -357,7 +391,7 @@ function samplePlan(){
   ];
   return {
     id: "sample", sample:true,
-    client:{ name:"Sample Household", c1:"Alex", c2:"Jordan", date: todayISO(), annual: 54000 },
+    client:{ name:"Household", c1:"Alex", c2:"Jordan", date: todayISO(), annual: 54000 },
     method:"sequential",
     buckets: b,
     accounts:[
@@ -463,11 +497,12 @@ function compute(plan){
     if(bucketTotals[k]>0.5 && Math.abs(modelSums[k]-100)>0.001)
       warnings.push({lvl:"bad",msg:`${b.name.split("·")[0].trim()} strategy model totals ${modelSums[k].toFixed(2).replace(/\.00$/,"")}%, not 100%.`});
   });
-  plan.buckets.forEach((b,k)=>{ if(b.targetType==="years" && k<N-1 && !(+plan.client.annual)) warnings.push({lvl:"warn",msg:`${b.name.split("·")[0].trim()} is set in years of withdrawals, but the annual withdrawal amount is blank.`}); });
+  plan.buckets.forEach((b,k)=>{ if(b.targetType==="years" && k<N-1 && !(+plan.client.annual)) warnings.push({lvl:"warn",msg:`${b.name.split("·")[0].trim()} is set in years of distributions, but the annual distribution need is blank.`}); });
 
   return {N,inc,exc,total,excludedTotal,targets,alloc,bucketTotals,modelSums,rows,warnings};
 }
 
+function clientNames(p){ return [p.client.c1,p.client.c2].map(x=>(x||"").trim()).filter(Boolean).join(" & "); }
 /* ---------- rendering: inputs ---------- */
 function ownerOptions(plan){
   const o = [];
@@ -484,7 +519,7 @@ function renderClient(){
       <label class="f">Client 1<input class="in" id="c_c1" value="${esc(c.c1)}" placeholder="First name"></label>
       <label class="f">Client 2<input class="in" id="c_c2" value="${esc(c.c2)}" placeholder="First name (optional)"></label>
       <label class="f">Plan date<input class="in" type="date" id="c_date" value="${esc(c.date)}"></label>
-      <label class="f">Annual withdrawal need<div class="money-wrap"><span>$</span><input class="in r" id="c_annual" inputmode="decimal" value="${esc(fmtMoneyInput(c.annual))}" placeholder="Optional"></div></label>
+      <label class="f">Annual distribution need<div class="money-wrap"><span>$</span><input class="in r" id="c_annual" inputmode="decimal" value="${esc(fmtMoneyInput(c.annual))}" placeholder="Optional"></div></label>
       <div class="span2" style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center">
         <span style="font-size:12px;color:var(--muted);font-weight:500">Fill method</span>
         <div class="seg" role="group" aria-label="Fill method">
@@ -494,7 +529,6 @@ function renderClient(){
         <p class="hint" style="flex-basis:100%">${S.plan.method==="prorata" ? "Each bucket target is spread across accounts in proportion to their value, so every account holds a slice of every bucket." : "Bucket 1 fills from the first account, then the next, until the target is met. Bucket 2 continues from what is left. The last bucket takes the remainder of each account."}</p>
       </div>
     </div>`;
-  $("#sampleFlagWrap").innerHTML = S.plan.sample ? `<span class="sample-flag">Example data</span>` : "";
 }
 function renderAccounts(){
   const p = S.plan, owners = ownerOptions(p);
@@ -552,7 +586,7 @@ function renderBuckets(){
         <select class="in" data-bf="targetType" id="b_tt_${b.id}" aria-label="Target type">
           <option value="dollar" ${b.targetType==="dollar"?"selected":""}>Dollar amount</option>
           <option value="percent" ${b.targetType==="percent"?"selected":""}>% of plan assets</option>
-          <option value="years" ${b.targetType==="years"?"selected":""}>Years of withdrawals</option>
+          <option value="years" ${b.targetType==="years"?"selected":""}>Years of distributions</option>
         </select>
         <div class="${b.targetType==="dollar"?"money-wrap":"pct-wrap"}">
           ${b.targetType==="dollar"?"<span>$</span>":`<span>${b.targetType==="percent"?"%":"yrs"}</span>`}
@@ -657,7 +691,8 @@ function renderResults(){
   }).join("");
 
   $("#results").innerHTML = `
-    <div class="results-head"><h2 style="font:600 22px/1.2 var(--serif)">${esc(p.client.name||"Untitled plan")}</h2><span class="date">${esc(fmtDate(p.client.date))}</span>${p.sample?`<span class="sample-flag">Example data</span>`:""}</div>
+    <div class="results-head"><h2 style="font:600 22px/1.2 var(--serif)">${esc(p.client.name||"Household")}</h2><span class="date">${esc(fmtDate(p.client.date))}</span><span class="print-only print-meta">${p.method==="prorata"?"Pro rata fill":"Sequential fill by account order"}</span>
+      <div class="who">${clientNames(p)?`<span>Clients: <b>${esc(clientNames(p))}</b></span>`:""}<span>Annual distribution need: <b>${+p.client.annual?$f(p.client.annual):"Not set"}</b></span></div></div>
     <div class="warnings">${R.warnings.map(w=>`<div class="warn-line ${w.lvl==="bad"?"bad":""}"><span aria-hidden="true">${w.lvl==="bad"?"●":"▲"}</span><span>${esc(w.msg)}</span></div>`).join("")}</div>
     <div class="kpis" style="margin-top:12px">
       <div class="kpi"><div class="k">Plan assets</div><div class="v">${$f(R.total)}</div><div class="s">${R.inc.length} account${R.inc.length===1?"":"s"} in plan</div></div>
@@ -671,18 +706,20 @@ function renderResults(){
       const fillPct = last ? (R.total? got/R.total:0) : (t>0? Math.min(1,got/t) : (got>0?1:0));
       return `<div class="bcard" style="--bc:${bucketColor(k)}"><div class="t">${esc(b.name)}</div><div class="amt">${$f(got)}</div>
         <div class="sub">${last?`${pf(R.total?got/R.total:0)} of plan assets`:`Target ${$f(t)} · ${pf(R.total?got/R.total:0)} of plan`}</div>
+        ${+p.client.annual?`<div class="sub">≈ ${(got/p.client.annual).toFixed(1)} years of distributions</div>`:""}
         <div class="meter" aria-hidden="true"><i style="width:${(fillPct*100).toFixed(2)}%"></i></div><div>${st}</div></div>`;
     }).join("")}</div>
 
-    <div class="sec-h"><h3>Bucket allocation by account</h3><div class="aside">${legend}</div></div>
+    <div class="sec-h print-break-avoid"><h3>Bucket allocation by account</h3><div class="aside">${legend}</div></div>
     <div class="tscroll"><table class="t"><thead><tr><th>Account</th><th class="n">Value</th>${p.buckets.map(b=>`<th class="n">${esc(shortB(b))}</th>`).join("")}</tr></thead>
       <tbody>${allocRows || `<tr><td colspan="${N+2}" style="color:var(--muted)">No accounts in plan.</td></tr>`}${excRows}</tbody>
       <tfoot><tr><td>Plan total</td><td class="n">${$f(R.total)}</td>${R.bucketTotals.map(x=>`<td class="n">${$f(x)}<span class="p">${pf(R.total?x/R.total:0)}</span></td>`).join("")}</tr></tfoot></table></div>
 
-    <div class="sec-h"><h3>Strategies by account</h3><div class="aside"><div class="seg" role="group" aria-label="Strategy view">
+    <div class="sec-h print-break"><h3>Strategies by account</h3><div class="aside no-print"><div class="seg" role="group" aria-label="Strategy view">
       <button data-sv="account" aria-pressed="${S.stratView==="account"}">Account cards</button>
       <button data-sv="matrix" aria-pressed="${S.stratView==="matrix"}">Model allocation grid</button></div></div></div>
-    ${R.inc.length ? (S.stratView==="matrix" ? `<div class="tscroll">${matrix}</div>` : `<div class="acards">${cards}</div>`) : `<div class="empty">Add accounts to see strategy dollars.</div>`}
+    ${!R.inc.length ? `<div class="empty">Add accounts to see strategy dollars.</div>` : S.printMode ? `<div class="tscroll">${matrix}</div><div class="sec-h print-break"><h3>Trade detail by account</h3></div><div class="acards">${cards}</div>` : (S.stratView==="matrix" ? `<div class="tscroll">${matrix}</div>` : `<div class="acards">${cards}</div>`)}
+    <div class="print-only print-foot">Prepared ${esc(fmtDate(todayISO()))}. Amounts are rounded to whole dollars. For planning purposes; confirm values before placing trades.</div>
   `;
 }
 function renderAll(){ renderInputs(); renderResults(); }
@@ -936,7 +973,7 @@ function buildTables(){
   const r2 = v => Math.round(v*100)/100;
   const pc = v => (v*100).toFixed(2)+"%";
   const out = [];
-  out.push([p.client.name||"Untitled plan"]); out.push([fmtDate(p.client.date)]); out.push([`Fill method: ${p.method==="prorata"?"Pro rata":"Sequential by account order"}`]); out.push([]);
+  out.push([p.client.name||"Household"]); if(clientNames(p)) out.push([`Clients: ${clientNames(p)}`]); out.push([fmtDate(p.client.date)]); out.push([`Annual distribution need: ${+p.client.annual?Math.round(p.client.annual):"Not set"}`]); out.push([`Fill method: ${p.method==="prorata"?"Pro rata":"Sequential by account order"}`]); out.push([]);
   out.push(["Bucket","Target $","Allocated $","% of plan"]);
   p.buckets.forEach((b,k)=>out.push([b.name, k===N-1?"Remainder":r2(R.targets[k]), r2(R.bucketTotals[k]), pc(R.total?R.bucketTotals[k]/R.total:0)]));
   out.push([]);
@@ -974,6 +1011,7 @@ $("#exportPop").addEventListener("click", async e=>{
     catch(_){ fallbackCopy(tsv); }
   }
   if(x==="import"){ $("#importFile").click(); }
+  if(x==="pdf"){ printPlan(); }
 });
 function fallbackCopy(text){
   const ta = document.createElement("textarea"); ta.value=text; ta.setAttribute("readonly",""); ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select();
@@ -996,10 +1034,24 @@ $("#importFile").addEventListener("change", e=>{
   rd.readAsText(f);
 });
 
+/* ---------- PDF / print ---------- */
+let titleBefore = null;
+function endPrint(){ if(!S.printMode) return; S.printMode=false; if(titleBefore!=null){ document.title=titleBefore; titleBefore=null; } renderResults(); }
+function printPlan(){
+  S.printMode = true; renderResults();
+  titleBefore = document.title;
+  const nm = (S.plan.client.name||"Client").trim();
+  document.title = `${nm} - Bucket Plan - ${S.plan.client.date||todayISO()}`;
+  setTimeout(()=>{
+    try{ window.print(); }catch(_){ toast("Printing isn't available here. Open the planner in Safari or Chrome."); }
+  }, 60);
+}
+window.addEventListener("afterprint", endPrint);
+
 /* ---------- boot ---------- */
 try{ const v = localStorage.getItem("bap_view"); if(v==="matrix"||v==="account") S.stratView=v; }catch(_){}
 const draft = loadDraft();
-if(draft){ S.plan = normalizePlan(draft.plan); S.dirty = !!draft.dirty; } else { S.plan = samplePlan(); }
+if(draft){ if(draft.plan && draft.plan.client && /^(Sample|Example) Household$/.test(draft.plan.client.name)) draft.plan.client.name="Household"; S.plan = normalizePlan(draft.plan); S.dirty = !!draft.dirty; } else { S.plan = samplePlan(); }
 renderAll(); renderOpenPop(); updateStatus();
 initStorage();
 })();
