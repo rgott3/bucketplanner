@@ -274,7 +274,8 @@ details.lib summary{cursor:pointer;color:var(--muted);font-size:12.5px;font-weig
       <div class="pop-wrap">
         <button class="btn" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export ▾</button>
         <div class="pop" id="exportPop" hidden>
-          <button class="item" data-exp="pdf"><span>Save as PDF / Print</span><span class="meta">.pdf</span></button>
+          <button class="item" data-exp="pdf"><span>Download PDF</span><span class="meta">.pdf</span></button>
+          <button class="item" data-exp="print"><span>Print…</span><span class="meta">printer</span></button>
           <div class="sep"></div>
           <button class="item" data-exp="copy"><span>Copy tables for Excel</span><span class="meta">clipboard</span></button>
           <button class="item" data-exp="csv"><span>Download CSV</span><span class="meta">.csv</span></button>
@@ -991,7 +992,7 @@ async function offerDownload(filename, data){
   let dl=null; try{ if(window.claude && window.claude.use) dl = await window.claude.use("downloads"); }catch(_){}
   if(!dl){
     try{
-      const type = filename.endsWith(".csv") ? "text/csv" : "application/json";
+      const type = filename.endsWith(".csv") ? "text/csv" : filename.endsWith(".pdf") ? "application/pdf" : "application/json";
       const url = URL.createObjectURL(new Blob([data],{type}));
       const a = document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
       setTimeout(()=>URL.revokeObjectURL(url),4000);
@@ -1011,7 +1012,8 @@ $("#exportPop").addEventListener("click", async e=>{
     catch(_){ fallbackCopy(tsv); }
   }
   if(x==="import"){ $("#importFile").click(); }
-  if(x==="pdf"){ printPlan(); }
+  if(x==="pdf"){ await downloadPdf(); }
+  if(x==="print"){ printPlan(); }
 });
 function fallbackCopy(text){
   const ta = document.createElement("textarea"); ta.value=text; ta.setAttribute("readonly",""); ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select();
@@ -1033,6 +1035,218 @@ $("#importFile").addEventListener("change", e=>{
   };
   rd.readAsText(f);
 });
+
+/* ---------- PDF writer (built in; standard Helvetica, no library) ---------- */
+const HW = {"R":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,350,556,350,222,556,333,1000,556,556,333,1000,667,333,1000,350,611,350,350,222,222,333,333,350,556,1000,333,1000,500,333,944,350,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500],"B":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,350,556,350,278,556,500,1000,556,556,333,1000,667,333,1000,350,611,350,350,278,278,500,500,350,556,1000,333,1000,556,333,944,350,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556]};
+const WIN = {"·":0xB7,"•":0x95,"–":0x96,"—":0x97,"‘":0x91,"’":0x92,"“":0x93,"”":0x94,"…":0x85," ":0x20,"≈":0x7E};
+function winCodes(str){ const out=[]; for(const ch of String(str??"")){ const c=ch.codePointAt(0); if(c>=32&&c<127) out.push(c); else if(WIN[ch]!=null) out.push(WIN[ch]); else if(c>=160&&c<=255) out.push(c); else out.push(63); } return out; }
+function tw(str,size,bold){ const t=HW[bold?"B":"R"]; return winCodes(str).reduce((s,c)=>s+(t[c]||556),0)*size/1000; }
+function fitText(str,size,bold,maxW){ str=String(str??""); if(!maxW || tw(str,size,bold)<=maxW) return str; while(str.length>1 && tw(str+"…",size,bold)>maxW) str=str.slice(0,-1); return str.replace(/\s+$/,"")+"…"; }
+function wrapText(str,size,bold,maxW){ const words=String(str??"").split(/\s+/); const lines=[]; let cur=""; words.forEach(w=>{ const t=cur?cur+" "+w:w; if(tw(t,size,bold)<=maxW||!cur) cur=t; else { lines.push(cur); cur=w; } }); if(cur) lines.push(cur); return lines; }
+function rgbOf(hex){ const h=hex.replace("#",""); return [0,2,4].map(i=>(parseInt(h.slice(i,i+2),16)/255).toFixed(3)).join(" "); }
+const n2 = v => (+v).toFixed(2);
+function PdfDoc(){ this.pages=[]; this.p=null; }
+PdfDoc.prototype.addPage=function(landscape){ const p={w:landscape?792:612,h:landscape?612:792,ops:[]}; this.pages.push(p); this.p=p; return p; };
+PdfDoc.prototype.text=function(x,y,str,o){
+  o=o||{}; const size=o.size||10, bold=!!o.bold; let s=fitText(str,size,bold,o.maxW);
+  if(o.align==="right") x-=tw(s,size,bold); else if(o.align==="center") x-=tw(s,size,bold)/2;
+  const hex=winCodes(s).map(c=>c.toString(16).padStart(2,"0")).join("");
+  this.p.ops.push(`BT /${bold?"F2":"F1"} ${n2(size)} Tf ${rgbOf(o.color||"#111816")} rg ${n2(x)} ${n2(this.p.h-y)} Td <${hex}> Tj ET`);
+};
+PdfDoc.prototype.rect=function(x,y,w,h,o){
+  o=o||{}; const parts=[];
+  if(o.fill) parts.push(`${rgbOf(o.fill)} rg`);
+  if(o.stroke) parts.push(`${rgbOf(o.stroke)} RG ${n2(o.lw||0.75)} w`);
+  parts.push(`${n2(x)} ${n2(this.p.h-y-h)} ${n2(w)} ${n2(h)} re ${o.fill&&o.stroke?"B":o.fill?"f":"S"}`);
+  this.p.ops.push(parts.join(" "));
+};
+PdfDoc.prototype.line=function(x1,y1,x2,y2,color,lw){ this.p.ops.push(`${rgbOf(color||"#D3DAD6")} RG ${n2(lw||0.5)} w ${n2(x1)} ${n2(this.p.h-y1)} m ${n2(x2)} ${n2(this.p.h-y2)} l S`); };
+PdfDoc.prototype.blob=function(meta){
+  const objs=[]; const n=this.pages.length;
+  const kids=this.pages.map((_,i)=>`${5+i*2} 0 R`).join(" ");
+  objs.push(`<< /Type /Catalog /Pages 2 0 R >>`);
+  objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${n} >>`);
+  objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
+  objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
+  this.pages.forEach((p,i)=>{
+    const content=p.ops.join("\n");
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${p.w} ${p.h}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6+i*2} 0 R >>`);
+    objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  const infoHex = s => "<FEFF"+Array.from(String(s)).map(ch=>{ const c=ch.codePointAt(0); return c>0xFFFF?"003F":c.toString(16).padStart(4,"0"); }).join("")+">";
+  objs.push(`<< /Title ${infoHex(meta.title||"")} /Producer ${infoHex("Bucket Allocation Planner")} >>`);
+  let out="%PDF-1.4\n"; const offs=[];
+  objs.forEach((o,i)=>{ offs.push(out.length); out+=`${i+1} 0 obj\n${o}\nendobj\n`; });
+  const xref=out.length;
+  out+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`+offs.map(o=>String(o).padStart(10,"0")+" 00000 n \n").join("");
+  out+=`trailer\n<< /Size ${objs.length+1} /Root 1 0 R /Info ${objs.length} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Blob([out],{type:"application/pdf"});
+};
+
+/* ---------- plan report ---------- */
+function buildPlanPdf(){
+  const p=S.plan, R=compute(p), N=R.N, doc=new PdfDoc();
+  const M=40, FOOT=30;
+  const C={ink:"#111816",muted:"#56615C",faint:"#8A948F",line:"#D3DAD6",rule:"#AEB8B3",soft:"#EEF1EF",bad:"#B0281F",warn:"#9A6212",good:"#2C7A4B"};
+  const BC=["#2B7BA0","#BF8829","#3B8656","#8659A4","#B4513A"];
+  const title=(p.client.name||"Household").trim();
+  let pg, y, W, H;
+  const newPage = land => { pg=doc.addPage(land); W=pg.w; H=pg.h; y=M; };
+  const room = () => H-FOOT-M/2-y;
+  const pct = (a,b) => b ? (a/b*100).toFixed(1)+"%" : "";
+  function section(t, need){
+    if(room() < (need||60)) newPage(pg.w>pg.h);
+    y+=12; doc.text(M,y,t.toUpperCase(),{size:8,bold:true,color:C.muted}); y+=8;
+  }
+  function table(cols, rows, contTitle){
+    const tot=cols.reduce((s,c)=>s+c.w,0), x0=M;
+    const hl = cols.map(c=>{ const ls=wrapText(c.t.toUpperCase(),6.8,true,c.w-6); return ls.length>2 ? [ls[0], ls.slice(1).join(" ")] : ls; });
+    const maxL = Math.max(1,...hl.map(l=>l.length)), anySub = cols.some(c=>c.sub);
+    const head=()=>{ let x=x0; cols.forEach((c,i)=>{ const tx=c.a==="r"?x+c.w-4:x+4, al=c.a==="r"?"right":"left";
+        hl[i].forEach((l,j)=>doc.text(tx, y+9+j*8, l, {size:6.8,bold:true,color:C.muted,align:al,maxW:c.w-6}));
+        if(c.sub) doc.text(tx, y+9+maxL*8, c.sub, {size:6.6,color:C.faint,align:al,maxW:c.w-6});
+        x+=c.w; }); y+=5+maxL*8+(anySub?8:0); doc.line(x0,y,x0+tot,y,C.rule,0.75); };
+    head();
+    rows.forEach(r=>{
+      const hasSub=r.cells.some(c=>c&&typeof c==="object"&&c.sub);
+      const rh = r.kind==="group" ? 16 : hasSub ? 23 : 16;
+      if(room()<rh){ newPage(pg.w>pg.h); if(contTitle){ doc.text(M,y+8,(contTitle+" (continued)").toUpperCase(),{size:8,bold:true,color:C.muted}); y+=16; } head(); }
+      if(r.kind==="group"){
+        doc.rect(x0,y,tot,rh,{fill:C.soft});
+        if(r.color) doc.rect(x0+5,y+5,6,6,{fill:r.color});
+        doc.text(x0+(r.color?15:5), y+11, r.cells[0], {size:8,bold:true,maxW:tot-22});
+        y+=rh; return;
+      }
+      if(r.kind==="total") doc.line(x0,y,x0+tot,y,C.ink,0.9);
+      let x=x0;
+      r.cells.forEach((c,i)=>{
+        const col=cols[i]; if(!col) return;
+        const o=(c&&typeof c==="object")?c:{main:c};
+        const right=col.a==="r"; const off=o.swatch?11:0;
+        if(o.swatch) doc.rect(x+5,y+6,6,6,{fill:o.swatch});
+        const tx = right ? x+col.w-4 : x+4+off;
+        const color = o.color || (r.kind==="sub"||r.muted ? C.muted : C.ink);
+        doc.text(tx, y+11, o.main??"", {size:8.2,bold:r.kind==="total"||o.bold,color,align:right?"right":"left",maxW:col.w-8-off});
+        if(o.sub) doc.text(tx, y+19.5, o.sub, {size:6.8,color:C.faint,align:right?"right":"left",maxW:col.w-8-off});
+        x+=col.w;
+      });
+      y+=rh;
+      if(r.kind!=="total") doc.line(x0,y,x0+tot,y,C.line,0.5);
+    });
+    y+=4;
+  }
+
+  /* page 1: header */
+  newPage(false);
+  const CW = W-2*M;
+  doc.text(M,y+16,title,{size:19,bold:true,maxW:CW-130});
+  doc.text(W-M,y+16,fmtDate(p.client.date),{size:9,color:C.muted,align:"right"});
+  y+=30;
+  const meta=[]; if(clientNames(p)) meta.push(`Clients: ${clientNames(p)}`);
+  meta.push(`Annual distribution need: ${+p.client.annual?$f(p.client.annual):"Not set"}`);
+  meta.push(p.method==="prorata"?"Pro rata fill":"Sequential fill by account order");
+  doc.text(M,y,meta.join("     ·     "),{size:8.8,color:C.muted,maxW:CW}); y+=10;
+  doc.line(M,y,W-M,y,C.rule,0.75); y+=6;
+  R.warnings.forEach(w=>{ wrapText("• "+w.msg,8.3,false,CW).forEach(l=>{ y+=11; doc.text(M,y,l,{size:8.3,color:w.lvl==="bad"?C.bad:C.warn}); }); });
+  if(R.warnings.length) y+=6;
+
+  /* KPIs */
+  const kp=[["Plan assets",$f(R.total),`${R.inc.length} account${R.inc.length===1?"":"s"} in plan`],["Not included",$f(R.excludedTotal),`${R.exc.length} account${R.exc.length===1?"":"s"}`],["Household total",$f(R.total+R.excludedTotal),"All accounts listed"]];
+  const kw=CW/3; y+=4;
+  kp.forEach((k,i)=>{ const x=M+i*kw; if(i) doc.line(x,y+2,x,y+40,C.line,0.5); const px=x+(i?12:0);
+    doc.text(px,y+10,k[0].toUpperCase(),{size:6.8,bold:true,color:C.muted}); doc.text(px,y+27,k[1],{size:14.5,bold:true}); doc.text(px,y+38,k[2],{size:7.5,color:C.muted}); });
+  y+=48; doc.line(M,y,W-M,y,C.line,0.5);
+
+  /* buckets */
+  section("Buckets");
+  const ann=+p.client.annual||0;
+  table([{t:"Bucket",w:CW-80-80-58-62-72},{t:"Target",w:80,a:"r"},{t:"Allocated",w:80,a:"r"},{t:"% of plan",w:58,a:"r"},{t:"Years of dist.",w:62,a:"r"},{t:"Status",w:72,a:"r"}],
+    p.buckets.map((b,k)=>{ const got=R.bucketTotals[k], t=R.targets[k], last=k===N-1, d=got-t;
+      const st = last?{main:"Remainder",color:C.muted}:Math.abs(d)<=0.5?{main:"On target",color:C.good,bold:true}:d>0?{main:"Over "+$f(d),color:C.warn,bold:true}:{main:"Short "+$f(-d),color:C.bad,bold:true};
+      const models=b.model.filter(m=>m.s).map(m=>`${m.s} ${+m.p||0}%`).join(", ");
+      return {cells:[{main:b.name,swatch:BC[k%5],bold:true,sub:models||"No strategies"}, last?{main:"Remainder",color:C.muted}:$f(t), $f(got), pct(got,R.total), ann?(got/ann).toFixed(1):"–", st]};
+    }));
+
+  /* allocation by account */
+  section("Bucket allocation by account", 90);
+  const bw=Math.min(82,Math.floor((CW-72-150)/N)); const aw=CW-72-bw*N;
+  const aCols=[{t:"Account",w:aw},{t:"Value",w:72,a:"r"}].concat(p.buckets.map(b=>({t:shortB(b),w:bw,a:"r"})));
+  const acctCell = a => ({main:(a.name||"Unnamed account")+(a.num?"  ••"+a.num:""), sub:`${a.type}${a.owner?" · "+a.owner:""}`});
+  const aRows=R.inc.map(a=>({cells:[acctCell(a),$f(a.value)].concat(R.alloc[a.id].map(x=>x>0.5?{main:$f(x),sub:pct(x,a.value)}:"–"))}));
+  if(R.exc.length){ aRows.push({kind:"group",cells:["Not included in plan"]}); R.exc.forEach(a=>aRows.push({muted:true,cells:[acctCell(a),$f(a.value)]})); }
+  aRows.push({kind:"total",cells:["Plan total",$f(R.total)].concat(R.bucketTotals.map(x=>({main:$f(x),sub:pct(x,R.total)})))});
+  table(aCols,aRows,"Bucket allocation by account");
+
+  /* strategy grid (like the spreadsheet) */
+  if(R.inc.length){
+    const land = R.inc.length+1 > 6;
+    const per = land ? 7 : 6;
+    const nCh = Math.ceil(R.inc.length/per), size = Math.ceil(R.inc.length/nCh);
+    const chunks=[]; for(let i=0;i<R.inc.length;i+=size) chunks.push(R.inc.slice(i,i+size));
+    const cellAmt=(a,k,s)=>R.rows.filter(r=>r.a.id===a.id&&r.k===k&&r.s===s).reduce((t,r)=>t+r.amt,0);
+    chunks.forEach((accts,ci)=>{
+      newPage(land); const cw=W-2*M; const withTotal = ci===chunks.length-1;
+      section(chunks.length>1?`Strategy allocation grid (${ci+1} of ${chunks.length})`:"Strategy allocation grid", 60);
+      const nCols=accts.length+(withTotal?1:0); const colW=Math.min(96,Math.floor((cw-150)/nCols)); const sW=cw-40-colW*nCols;
+      const cols=[{t:"Strategy",w:sW},{t:"Model",w:40,a:"r"}].concat(accts.map(a=>({t:a.name||"Account",sub:a.num?"••"+a.num:"",w:colW,a:"r"}))).concat(withTotal?[{t:"Total",w:colW,a:"r"}]:[]);
+      const rows=[];
+      p.buckets.forEach((b,k)=>{
+        rows.push({kind:"group",color:BC[k%5],cells:[b.name]});
+        const names=[]; b.model.forEach(m=>{ if(m.s&&!names.includes(m.s)) names.push(m.s); });
+        R.rows.filter(r=>r.k===k&&r.flag).forEach(r=>{ if(!names.includes(r.s)) names.push(r.s); });
+        names.forEach(s=>{ const m=b.model.find(x=>x.s===s); const vals=accts.map(a=>cellAmt(a,k,s)); const all=R.inc.reduce((t,a)=>t+cellAmt(a,k,s),0);
+          rows.push({cells:[{main:s,color:m?undefined:C.bad},m?(+m.p||0)+"%":"–"].concat(vals.map((v,i)=>Math.abs(v)>0.5?{main:$f(v),sub:pct(v,accts[i].value)}:"–")).concat(withTotal?[Math.abs(all)>0.5?$f(all):"–"]:[])}); });
+        const bt=accts.map(a=>R.alloc[a.id][k]);
+        rows.push({kind:"sub",cells:["Total "+shortB(b),+R.modelSums[k].toFixed(2)+"%"].concat(bt.map((v,i)=>v>0.5?{main:$f(v),sub:pct(v,accts[i].value)}:"–")).concat(withTotal?[$f(R.bucketTotals[k])]:[])});
+      });
+      rows.push({kind:"total",cells:["Account totals",""].concat(accts.map(a=>$f(a.value))).concat(withTotal?[$f(R.total)]:[])});
+      table(cols,rows,"Strategy allocation grid");
+    });
+
+    /* trade detail per account */
+    newPage(false);
+    section("Trade detail by account");
+    const tcw=W-2*M;
+    R.inc.forEach(a=>{
+      const rs=R.rows.filter(r=>r.a.id===a.id&&Math.abs(r.amt)>0.5);
+      const groups=p.buckets.filter((b,k)=>rs.some(r=>r.k===k)).length;
+      const need=26+13+rs.length*16+groups*16+10;
+      if(room()<need && need < H-2*M-FOOT) newPage(false);
+      else if(room()<60) newPage(false);
+      y+=6;
+      doc.rect(M,y,tcw,22,{fill:C.soft});
+      doc.text(M+6,y+14,a.name||"Unnamed account",{size:9.5,bold:true,maxW:tcw*0.45});
+      const nmW=Math.min(tw(a.name||"Unnamed account",9.5,true),tcw*0.45);
+      doc.text(M+14+nmW,y+14,[a.num?"••"+a.num:"",a.type,a.owner].filter(Boolean).join("  ·  "),{size:7.8,color:C.muted,maxW:tcw*0.55-100});
+      doc.text(W-M-6,y+14,$f(a.value),{size:9.5,bold:true,align:"right"});
+      y+=24;
+      const rows=[];
+      p.buckets.forEach((b,k)=>{ const br=rs.filter(r=>r.k===k); if(!br.length) return;
+        rows.push({kind:"group",color:BC[k%5],cells:[`${b.name}  ·  ${$f(R.alloc[a.id][k])}  ·  ${pct(R.alloc[a.id][k],a.value)} of account`]});
+        br.forEach(r=>{ const m=b.model.find(x=>x.s===r.s); rows.push({cells:[{main:r.s,color:r.flag?C.bad:undefined},m?(+m.p||0)+"% of bucket":"–",$f(r.amt),pct(r.amt,a.value)]}); });
+      });
+      if(!rows.length) rows.push({cells:[{main:"No value to allocate",color:C.muted},"","",""]});
+      table([{t:"Strategy",w:tcw-110-90-80},{t:"Model",w:110,a:"r"},{t:"Amount",w:90,a:"r"},{t:"% of account",w:80,a:"r"}],rows,a.name||"Account");
+    });
+  }
+  // closing note
+  if(room()<30) newPage(false);
+  y+=10; doc.text(M,y,"Amounts are rounded to whole dollars. For planning purposes only; confirm current values before placing trades.",{size:7.5,color:C.faint,maxW:W-2*M});
+
+  // footers
+  const total=doc.pages.length;
+  doc.pages.forEach((pp,i)=>{ doc.p=pp;
+    doc.line(M,pp.h-M+6,pp.w-M,pp.h-M+6,C.line,0.5);
+    doc.text(M,pp.h-M+18,`${title}  ·  Bucket Allocation Plan  ·  ${fmtDate(p.client.date)}`,{size:7,color:C.faint,maxW:pp.w-2*M-70});
+    doc.text(pp.w-M,pp.h-M+18,`Page ${i+1} of ${total}`,{size:7,color:C.faint,align:"right"});
+  });
+  return doc.blob({title:`${title} - Bucket Plan`});
+}
+async function downloadPdf(){
+  let blob;
+  try{ blob = buildPlanPdf(); }catch(err){ console.error(err); toast("Couldn't build the PDF. Try Print instead."); return; }
+  await offerDownload(`${safeName()}-Bucket-Plan-${S.plan.client.date||todayISO()}.pdf`, blob);
+}
 
 /* ---------- PDF / print ---------- */
 let titleBefore = null;
