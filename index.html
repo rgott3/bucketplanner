@@ -190,6 +190,8 @@ table.t tr.grp td{background:var(--surface-2);font-weight:600;font-size:12px;let
 table.t tr.grp td .dot{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--bc);margin-right:7px;vertical-align:0}
 table.t tr.sub td{color:var(--muted);font-size:12.5px}
 table.t tr.off td{color:var(--muted)}
+table.t tr.tiny td,table.t td.tiny,table.t td.tiny .p{color:var(--bad);font-weight:600}
+table.t tr.tiny td{background:var(--bad-soft)}
 .acct-cell .nm{font-weight:500}
 .acct-cell .meta{font-size:11.5px;color:var(--muted)}
 .stack{display:flex;height:8px;border-radius:3px;overflow:hidden;background:var(--surface-2);min-width:90px;margin-top:6px}
@@ -503,10 +505,13 @@ function compute(plan){
   });
   plan.buckets.forEach((b,k)=>{ if(b.targetType==="years" && k<N-1 && !(+plan.client.annual)) warnings.push({lvl:"warn",msg:`${b.name.split("·")[0].trim()} is set in years of distributions, but the annual distribution need is blank.`}); });
 
+  const tinyN = rows.filter(r=>!r.flag && isTiny(r.amt,+r.a.value||0)).length;
+  if(tinyN) warnings.push({lvl:"warn",msg:`${tinyN} strategy position${tinyN===1?" is":"s are"} under 1% of the account (shown in red).`});
   return {N,inc,exc,total,excludedTotal,targets,alloc,bucketTotals,modelSums,rows,warnings};
 }
 
 /* whole-percent trade weights per account; largest-remainder so each account totals exactly 100% */
+const isTiny = (amt,val) => val>0 && amt>0.5 && amt/val < 0.01;
 function tradePcts(R){
   const out = new Map();
   R.inc.forEach(a=>{
@@ -687,7 +692,7 @@ function renderResults(){
         const m = b.model.find(x=>x.s===s);
         const vals = R.inc.map(a=>cell(a,k,s));
         const tot = vals.reduce((x,y)=>x+y,0);
-        return `<tr><td>${esc(s)}</td><td class="n">${m?(+m.p||0)+"%":"–"}</td>${vals.map((v,i)=>`<td class="n">${Math.abs(v)>0.5?$f(v):"–"}<span class="p">${Math.abs(v)>0.5&&R.inc[i].value?pf(v/R.inc[i].value):""}</span></td>`).join("")}<td class="n">${Math.abs(tot)>0.5?$f(tot):"–"}</td></tr>`;
+        return `<tr><td>${esc(s)}</td><td class="n">${m?(+m.p||0)+"%":"–"}</td>${vals.map((v,i)=>`<td class="n${isTiny(v,+R.inc[i].value||0)?" tiny":""}">${Math.abs(v)>0.5?$f(v):"–"}<span class="p">${Math.abs(v)>0.5&&R.inc[i].value?pf(v/R.inc[i].value):""}</span></td>`).join("")}<td class="n">${Math.abs(tot)>0.5?$f(tot):"–"}</td></tr>`;
       }).join("");
       const bt = R.inc.map(a=>R.alloc[a.id][k]);
       return `<tr class="grp" style="--bc:${bucketColor(k)}"><td colspan="${R.inc.length+3}"><span class="dot"></span>${esc(b.name)}</td></tr>${body}
@@ -704,7 +709,7 @@ function renderResults(){
       ${p.buckets.map((b,k)=>{
         const br = rs.filter(r=>r.k===k); if(!br.length) return "";
         return `<tr class="grp" style="--bc:${bucketColor(k)}"><td colspan="3"><span class="dot"></span>${esc(shortB(b))} · ${$f(R.alloc[a.id][k])}</td></tr>` +
-          br.map(r=>`<tr><td>${r.flag?`<span class="pill bad">${esc(r.s)}</span>`:esc(r.s)}</td><td class="n">${$f(r.amt)}</td><td class="n">${a.value?TP.get(r)+"%":""}</td></tr>`).join("");
+          br.map(r=>`<tr${!r.flag&&isTiny(r.amt,+a.value||0)?' class="tiny" title="Under 1% of this account"':""}><td>${r.flag?`<span class="pill bad">${esc(r.s)}</span>`:esc(r.s)}</td><td class="n">${$f(r.amt)}</td><td class="n">${a.value?TP.get(r)+"%":""}</td></tr>`).join("");
       }).join("") || `<tr><td colspan="3" style="color:var(--muted)">No value to allocate.</td></tr>`}
       </tbody></table></div>`;
   }).join("");
@@ -1147,7 +1152,7 @@ function buildPlanPdf(){
         const tx = right ? x+col.w-4 : x+4+off;
         const color = o.color || (r.kind==="sub"||r.muted ? C.muted : C.ink);
         doc.text(tx, y+11, o.main??"", {size:8.2,bold:r.kind==="total"||o.bold,color,align:right?"right":"left",maxW:col.w-8-off});
-        if(o.sub) doc.text(tx, y+19.5, o.sub, {size:6.8,color:C.faint,align:right?"right":"left",maxW:col.w-8-off});
+        if(o.sub) doc.text(tx, y+19.5, o.sub, {size:6.8,color:o.subColor||C.faint,align:right?"right":"left",maxW:col.w-8-off});
         x+=col.w;
       });
       y+=rh;
@@ -1215,7 +1220,7 @@ function buildPlanPdf(){
         const names=[]; b.model.forEach(m=>{ if(m.s&&!names.includes(m.s)) names.push(m.s); });
         R.rows.filter(r=>r.k===k&&r.flag).forEach(r=>{ if(!names.includes(r.s)) names.push(r.s); });
         names.forEach(s=>{ const m=b.model.find(x=>x.s===s); const vals=accts.map(a=>cellAmt(a,k,s)); const all=R.inc.reduce((t,a)=>t+cellAmt(a,k,s),0);
-          rows.push({cells:[{main:s,color:m?undefined:C.bad},m?(+m.p||0)+"%":"–"].concat(vals.map((v,i)=>Math.abs(v)>0.5?{main:$f(v),sub:pct(v,accts[i].value)}:"–")).concat(withTotal?[Math.abs(all)>0.5?$f(all):"–"]:[])}); });
+          rows.push({cells:[{main:s,color:m?undefined:C.bad},m?(+m.p||0)+"%":"–"].concat(vals.map((v,i)=>Math.abs(v)>0.5?(isTiny(v,+accts[i].value||0)?{main:$f(v),sub:pct(v,accts[i].value),color:C.bad,subColor:C.bad,bold:true}:{main:$f(v),sub:pct(v,accts[i].value)}):"–")).concat(withTotal?[Math.abs(all)>0.5?$f(all):"–"]:[])}); });
         const bt=accts.map(a=>R.alloc[a.id][k]);
         rows.push({kind:"sub",cells:["Total "+shortB(b),+R.modelSums[k].toFixed(2)+"%"].concat(bt.map((v,i)=>v>0.5?{main:$f(v),sub:pct(v,accts[i].value)}:"–")).concat(withTotal?[$f(R.bucketTotals[k])]:[])});
       });
@@ -1244,7 +1249,8 @@ function buildPlanPdf(){
       const rows=[];
       p.buckets.forEach((b,k)=>{ const br=rs.filter(r=>r.k===k); if(!br.length) return;
         rows.push({kind:"group",color:BC[k%5],cells:[`${b.name}  ·  ${$f(R.alloc[a.id][k])}  ·  ${br.reduce((t,r)=>t+(r.amt>0?TPp.get(r):0),0)}% of account`]});
-        br.forEach(r=>{ const m=b.model.find(x=>x.s===r.s); rows.push({cells:[{main:r.s,color:r.flag?C.bad:undefined},m?(+m.p||0)+"% of bucket":"–",$f(r.amt),TPp.get(r)+"%"]}); });
+        br.forEach(r=>{ const m=b.model.find(x=>x.s===r.s); const t=!r.flag&&isTiny(r.amt,+a.value||0); const red=t?{color:C.bad,bold:true}:{};
+          rows.push({cells:[{main:r.s,color:(r.flag||t)?C.bad:undefined,bold:t},m?(+m.p||0)+"% of bucket":"–",{main:$f(r.amt),...red},{main:TPp.get(r)+"%",...red}]}); });
       });
       if(!rows.length) rows.push({cells:[{main:"No value to allocate",color:C.muted},"","",""]});
       table([{t:"Strategy",w:tcw-110-90-80},{t:"Model",w:110,a:"r"},{t:"Amount",w:90,a:"r"},{t:"% of account",w:80,a:"r"}],rows,a.name||"Account");
