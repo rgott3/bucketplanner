@@ -1,0 +1,1310 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>Bucket Allocation Planner</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans:wght@400;500;600&family=Source+Serif+4:opsz,wght@8..60,600&display=swap">
+<style>
+:root{
+  --bg:#F3F5F4; --surface:#FFFFFF; --surface-2:#ECF0EE; --ink:#17201C; --muted:#5A6661; --faint:#8B9691;
+  --line:#D6DDD9; --line-strong:#B9C3BE; --accent:#1E4D6B; --accent-ink:#FFFFFF; --accent-soft:#E2ECF2;
+  --b1:#2B7BA0; --b2:#BF8829; --b3:#3B8656; --b4:#8659A4; --b5:#B4513A;
+  --good:#2C7A4B; --good-soft:#E1F1E7; --warn:#9A6212; --warn-soft:#FBF0DC; --bad:#B0281F; --bad-soft:#FBE4E1;
+  --shadow:0 1px 2px rgba(20,35,30,.06),0 4px 16px rgba(20,35,30,.05);
+  --sans:"IBM Plex Sans",-apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,sans-serif;
+  --serif:"Source Serif 4",Georgia,"Times New Roman",serif;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#0F1412; --surface:#171E1B; --surface-2:#1F2824; --ink:#E4EBE7; --muted:#9AA7A1; --faint:#6F7C76;
+    --line:#2B3531; --line-strong:#3D4944; --accent:#86B8D8; --accent-ink:#0F1412; --accent-soft:#1D2D38;
+    --b1:#58A6CB; --b2:#D9A54A; --b3:#5FAF7C; --b4:#A984C4; --b5:#D77A62;
+    --good:#6CC08E; --good-soft:#18301F; --warn:#E0A94B; --warn-soft:#33270F; --bad:#EE7F74; --bad-soft:#3A1917;
+    --shadow:0 1px 2px rgba(0,0,0,.3);
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0F1412; --surface:#171E1B; --surface-2:#1F2824; --ink:#E4EBE7; --muted:#9AA7A1; --faint:#6F7C76;
+  --line:#2B3531; --line-strong:#3D4944; --accent:#86B8D8; --accent-ink:#0F1412; --accent-soft:#1D2D38;
+  --b1:#58A6CB; --b2:#D9A54A; --b3:#5FAF7C; --b4:#A984C4; --b5:#D77A62;
+  --good:#6CC08E; --good-soft:#18301F; --warn:#E0A94B; --warn-soft:#33270F; --bad:#EE7F74; --bad-soft:#3A1917;
+  --shadow:0 1px 2px rgba(0,0,0,.3);
+}
+*{box-sizing:border-box}
+[hidden]{display:none!important}
+body{background:var(--bg);color:var(--ink);font:14px/1.45 var(--sans);-webkit-font-smoothing:antialiased}
+.wrap{max-width:1480px;margin:0 auto;padding-inline:20px;padding-block:0 48px}
+@media (max-width:600px){.wrap{padding-inline:16px}}
+.num,td.n,th.n{font-variant-numeric:tabular-nums}
+h1,h2,h3{margin:0;text-wrap:balance}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+
+/* top bar */
+.topbar{position:sticky;top:env(safe-area-inset-top,0px);z-index:20;background:var(--bg);border-bottom:1px solid var(--line);margin-bottom:20px}
+.topbar-in{max-width:1480px;margin:0 auto;padding:12px 20px;display:flex;flex-wrap:wrap;gap:10px 16px;align-items:center}
+@media (max-width:600px){.topbar-in{padding:10px 16px}}
+.brand{display:flex;align-items:center;gap:10px;margin-right:auto;min-width:0}
+.brand-mark{display:flex;gap:2px;align-items:flex-end;height:22px}
+.brand-mark i{display:block;width:6px;border-radius:1px}
+.brand-mark i:nth-child(1){height:9px;background:var(--b1)}
+.brand-mark i:nth-child(2){height:15px;background:var(--b2)}
+.brand-mark i:nth-child(3){height:22px;background:var(--b3)}
+.brand-name{font-weight:600;letter-spacing:.01em;white-space:nowrap}
+.brand-sub{color:var(--muted);font-size:12.5px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.actions{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.btn{border:1px solid var(--line-strong);background:var(--surface);border-radius:7px;padding:6px 12px;cursor:pointer;font-weight:500;font-size:13px;line-height:1.3;white-space:nowrap}
+.btn:hover{border-color:var(--accent)}
+.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent)}
+.btn.ghost{background:transparent;border-color:transparent;color:var(--muted)}
+.btn.ghost:hover{color:var(--ink);border-color:var(--line)}
+.btn.small{padding:3px 9px;font-size:12.5px}
+.btn.danger{color:var(--bad)}
+.btn[disabled]{opacity:.45;cursor:not-allowed}
+.status{font-size:12px;color:var(--muted)}
+.status.dirty{color:var(--warn)}
+
+/* layout */
+.layout{display:grid;grid-template-columns:minmax(0,560px) minmax(0,1fr);gap:24px;align-items:start}
+@media (max-width:1100px){.layout{grid-template-columns:minmax(0,1fr)}}
+.col{display:flex;flex-direction:column;gap:18px;min-width:0}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;box-shadow:var(--shadow);min-width:0}
+.panel-h{display:flex;align-items:baseline;gap:10px;padding:14px 16px 10px;flex-wrap:wrap}
+.panel-h h2{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.panel-h .aside{margin-left:auto;display:flex;gap:6px;flex-wrap:wrap;align-items:center}
+.panel-b{padding:0 16px 16px}
+.hint{color:var(--muted);font-size:12.5px;margin:0}
+
+/* fields */
+.fgrid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px 12px}
+.fgrid .span2{grid-column:1/-1}
+@media (max-width:480px){.fgrid{grid-template-columns:minmax(0,1fr)}}
+label.f{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted);font-weight:500;min-width:0}
+input.in,select.in,textarea.in{width:100%;min-width:0;border:1px solid var(--line-strong);background:var(--surface);border-radius:6px;padding:6px 8px;color:var(--ink);font-size:13.5px}
+input.in[type="date"]{-webkit-appearance:none;appearance:none;display:block;width:100%;min-width:0;height:33.5px;line-height:31.5px;text-align:left;padding-block:0}
+input.in[type="date"]::-webkit-date-and-time-value{text-align:left;margin:0;line-height:31.5px;min-height:31.5px}
+input.in[type="date"]::-webkit-datetime-edit{padding:0}
+input.in:focus,select.in:focus{border-color:var(--accent);outline:none;box-shadow:0 0 0 3px var(--accent-soft)}
+input.in.r{text-align:right;font-variant-numeric:tabular-nums}
+.seg{display:inline-flex;border:1px solid var(--line-strong);border-radius:7px;overflow:hidden}
+.seg button{border:0;background:var(--surface);padding:6px 11px;cursor:pointer;font-size:12.5px;font-weight:500;color:var(--muted)}
+.seg button+button{border-left:1px solid var(--line-strong)}
+.seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
+.client-name{font:600 24px/1.2 var(--serif);border:0;border-bottom:1px dashed var(--line-strong);border-radius:0;padding:2px 0;background:transparent;width:100%}
+.client-name:focus{outline:none;border-bottom-color:var(--accent)}
+
+/* bucket editor */
+.bucket{border:1px solid var(--line);border-radius:9px;padding:12px;display:flex;flex-direction:column;gap:10px;background:var(--surface)}
+.bucket+.bucket{margin-top:10px}
+.bucket-top{display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:8px;align-items:center}
+.swatch{width:12px;height:28px;border-radius:3px;background:var(--bc)}
+.bucket-target{display:grid;grid-template-columns:minmax(0,150px) minmax(0,1fr);gap:8px;align-items:center}
+.computed{font-size:12.5px;color:var(--muted)}
+.computed b{color:var(--ink);font-weight:600}
+.model-row{display:grid;grid-template-columns:minmax(0,1fr) 84px 28px;gap:6px;align-items:center}
+.model-foot{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.pct-wrap{position:relative}
+.pct-wrap input{padding-right:20px}
+.pct-wrap span{position:absolute;right:8px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:12px;pointer-events:none}
+.money-wrap{position:relative}
+.money-wrap input{padding-left:18px}
+.money-wrap span{position:absolute;left:8px;top:50%;transform:translateY(-50%);color:var(--faint);font-size:12.5px;pointer-events:none}
+.xbtn{border:0;background:transparent;color:var(--faint);cursor:pointer;width:28px;height:28px;border-radius:6px;font-size:16px;line-height:1}
+.xbtn:hover{background:var(--surface-2);color:var(--bad)}
+.newstrat{display:flex;gap:6px}
+
+/* account editor */
+.acct{border:1px solid var(--line);border-radius:9px;padding:10px 10px 10px 8px;display:grid;grid-template-columns:28px minmax(0,1fr);gap:8px;background:var(--surface)}
+.acct+.acct{margin-top:8px}
+.acct.off{background:var(--surface-2)}
+.acct.off .acct-main{opacity:.72}
+.order{display:flex;flex-direction:column;align-items:center;gap:2px}
+.order .idx{font-size:11px;font-weight:600;color:var(--muted);font-variant-numeric:tabular-nums}
+.arrow{border:0;background:transparent;cursor:pointer;color:var(--muted);width:24px;height:22px;border-radius:5px;font-size:11px}
+.arrow:hover{background:var(--surface-2);color:var(--ink)}
+.arrow[disabled]{opacity:.25;cursor:default;background:transparent}
+.acct-main{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;min-width:0}
+.acct-main .c-name{grid-column:span 4}
+.acct-main .c-val{grid-column:span 2}
+.acct-main .c-type{grid-column:span 2}
+.acct-main .c-own{grid-column:span 2}
+.acct-main .c-num{grid-column:span 2}
+.acct-main .c-lock{grid-column:span 3}
+.acct-main .c-foot{grid-column:span 3;display:flex;align-items:flex-end;justify-content:flex-end;gap:8px}
+@media (max-width:520px){
+  .acct-main{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .acct-main .c-name,.acct-main .c-val,.acct-main .c-lock,.acct-main .c-foot{grid-column:1/-1}
+  .acct-main .c-type{grid-column:1/-1}
+  .acct-main .c-own,.acct-main .c-num{grid-column:span 1}
+}
+.toggle{display:inline-flex;align-items:center;gap:6px;font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none;padding-bottom:6px}
+.toggle input{width:16px;height:16px;accent-color:var(--accent)}
+.tax{display:inline-block;font-size:10.5px;font-weight:600;letter-spacing:.04em;text-transform:uppercase;padding:1px 6px;border-radius:4px;background:var(--surface-2);color:var(--muted);white-space:nowrap}
+
+/* pills */
+.pill{display:inline-flex;align-items:center;gap:5px;font-size:11.5px;font-weight:600;padding:2px 8px;border-radius:999px;white-space:nowrap}
+.pill::before{content:"";width:6px;height:6px;border-radius:50%;background:currentColor}
+.pill.good{background:var(--good-soft);color:var(--good)}
+.pill.warn{background:var(--warn-soft);color:var(--warn)}
+.pill.bad{background:var(--bad-soft);color:var(--bad)}
+.pill.neutral{background:var(--surface-2);color:var(--muted)}
+
+/* results */
+.results-head{display:flex;flex-wrap:wrap;gap:6px 18px;align-items:baseline;padding:16px 18px 6px}
+.results-head .date{color:var(--muted);font-size:13px}
+.results-head .who{flex-basis:100%;display:flex;flex-wrap:wrap;gap:4px 18px;font-size:13px;color:var(--muted)}
+.results-head .who b{color:var(--ink);font-weight:600}
+.kpis{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:1px;background:var(--line);border-top:1px solid var(--line);border-bottom:1px solid var(--line)}
+.kpi{background:var(--surface);padding:12px 18px}
+.kpi .k{font-size:11.5px;color:var(--muted);text-transform:uppercase;letter-spacing:.07em;font-weight:600}
+.kpi .v{font-size:20px;font-weight:600;font-variant-numeric:tabular-nums;margin-top:2px}
+.kpi .s{font-size:12px;color:var(--muted)}
+@media (max-width:520px){.kpis{grid-template-columns:minmax(0,1fr)}}
+.warnings{display:flex;flex-direction:column;gap:6px;padding:12px 18px 0}
+.warnings:empty{display:none}
+.warn-line{font-size:13px;display:flex;gap:8px;align-items:flex-start;padding:7px 10px;border-radius:7px;background:var(--warn-soft);color:var(--warn)}
+.warn-line.bad{background:var(--bad-soft);color:var(--bad)}
+.bsum{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:12px;padding:16px 18px}
+.bcard{border:1px solid var(--line);border-radius:9px;padding:12px;display:flex;flex-direction:column;gap:6px;border-top:4px solid var(--bc)}
+.bcard .t{font-weight:600;font-size:13.5px}
+.bcard .amt{font-size:19px;font-weight:600;font-variant-numeric:tabular-nums}
+.bcard .sub{font-size:12px;color:var(--muted);font-variant-numeric:tabular-nums}
+.meter{height:6px;border-radius:3px;background:var(--surface-2);overflow:hidden}
+.meter i{display:block;height:100%;background:var(--bc)}
+.sec-h{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:14px 18px 8px;border-top:1px solid var(--line)}
+.sec-h h3{font-size:12px;font-weight:600;text-transform:uppercase;letter-spacing:.08em;color:var(--muted)}
+.sec-h .aside{margin-left:auto;display:flex;gap:8px;flex-wrap:wrap}
+.tscroll{overflow-x:auto;padding:0 18px 14px}
+table.t{border-collapse:collapse;width:100%;font-size:13px}
+table.t th,table.t td{padding:7px 10px;border-bottom:1px solid var(--line);text-align:left;vertical-align:top}
+table.t th{font-size:11.5px;font-weight:600;color:var(--muted);text-transform:uppercase;letter-spacing:.05em;white-space:nowrap}
+table.t td.n,table.t th.n{text-align:right;white-space:nowrap}
+table.t tfoot td{font-weight:600;border-top:1.5px solid var(--line-strong);border-bottom:0}
+table.t .p{display:block;font-size:11.5px;color:var(--muted);font-weight:400}
+table.t tr.grp td{background:var(--surface-2);font-weight:600;font-size:12px;letter-spacing:.03em;border-bottom:1px solid var(--line)}
+table.t tr.grp td .dot{display:inline-block;width:9px;height:9px;border-radius:2px;background:var(--bc);margin-right:7px;vertical-align:0}
+table.t tr.sub td{color:var(--muted);font-size:12.5px}
+table.t tr.off td{color:var(--muted)}
+table.t tr.tiny td,table.t td.tiny,table.t td.tiny .p{color:var(--bad);font-weight:600}
+table.t tr.tiny td{background:var(--bad-soft)}
+.acct-cell .nm{font-weight:500}
+.acct-cell .meta{font-size:11.5px;color:var(--muted)}
+.stack{display:flex;height:8px;border-radius:3px;overflow:hidden;background:var(--surface-2);min-width:90px;margin-top:6px}
+.stack i{display:block;height:100%}
+.legend{display:flex;flex-wrap:wrap;gap:6px 14px;font-size:12px;color:var(--muted)}
+.legend span{display:inline-flex;align-items:center;gap:6px}
+.legend span::before{content:"";width:10px;height:10px;border-radius:2px;background:var(--bc)}
+.acards{display:grid;grid-template-columns:repeat(auto-fill,minmax(300px,1fr));gap:12px;padding:0 18px 18px}
+.acard{border:1px solid var(--line);border-radius:9px;overflow:hidden}
+.acard-h{padding:10px 12px;background:var(--surface-2);display:flex;gap:8px;align-items:baseline;flex-wrap:wrap}
+.acard-h .nm{font-weight:600}
+.acard-h .v{margin-left:auto;font-weight:600;font-variant-numeric:tabular-nums}
+.acard table.t{font-size:12.5px}
+.acard table.t td,.acard table.t th{padding:6px 12px}
+.empty{padding:16px 18px;color:var(--muted);font-size:13px}
+
+/* popover */
+.pop-wrap{position:relative}
+.pop{position:absolute;right:0;top:calc(100% + 6px);background:var(--surface);border:1px solid var(--line-strong);border-radius:9px;box-shadow:0 8px 28px rgba(0,0,0,.16);min-width:260px;max-width:min(360px,calc(100vw - 32px));z-index:30;padding:6px}
+.pop .item{display:flex;width:100%;gap:8px;align-items:center;text-align:left;border:0;background:transparent;padding:8px 10px;border-radius:6px;cursor:pointer;font-size:13px}
+.pop .item:hover{background:var(--surface-2)}
+.pop .item .meta{margin-left:auto;color:var(--muted);font-size:11.5px;white-space:nowrap}
+.pop .sep{height:1px;background:var(--line);margin:6px 4px}
+.pop .note{padding:8px 10px;color:var(--muted);font-size:12.5px}
+.plan-row{display:flex;align-items:center;gap:4px}
+.plan-row .item{flex:1;min-width:0}
+.plan-row .item span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.toast{position:fixed;left:50%;bottom:calc(20px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--bg);padding:9px 16px;border-radius:8px;font-size:13px;z-index:50;box-shadow:0 6px 20px rgba(0,0,0,.2);max-width:calc(100vw - 32px)}
+.lib-list{display:flex;flex-direction:column;gap:4px;margin-top:8px}
+.lib-item{display:flex;align-items:center;gap:8px;padding:4px 6px 4px 10px;border:1px solid var(--line);border-radius:6px;font-size:13px}
+.lib-item .cat{margin-left:auto}
+details.lib summary{cursor:pointer;color:var(--muted);font-size:12.5px;font-weight:500;padding:4px 0}
+.sample-flag{font-size:11.5px;font-weight:600;color:var(--warn);background:var(--warn-soft);padding:2px 8px;border-radius:999px}
+.print-only{display:none}
+@media print{
+  :root,:root:not([data-theme="light"]),:root[data-theme="dark"]{
+    color-scheme:light;
+    --bg:#FFFFFF; --surface:#FFFFFF; --surface-2:#EEF1EF; --ink:#111816; --muted:#4F5A55; --faint:#7D8883;
+    --line:#D3DAD6; --line-strong:#AEB8B3; --accent:#1E4D6B; --accent-ink:#FFFFFF; --accent-soft:#E2ECF2;
+    --b1:#2B7BA0; --b2:#BF8829; --b3:#3B8656; --b4:#8659A4; --b5:#B4513A;
+    --good:#2C7A4B; --good-soft:#E1F1E7; --warn:#9A6212; --warn-soft:#FBF0DC; --bad:#B0281F; --bad-soft:#FBE4E1; --shadow:none;
+  }
+  @page{margin:0.45in}
+  *{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+  body{background:#fff;font-size:11.5px}
+  .topbar,#inputsCol,.no-print,.toast{display:none!important}
+  .wrap{max-width:none;padding:0}
+  .layout{display:block}
+  .panel{border:0;box-shadow:none;border-radius:0}
+  .print-only{display:block}
+  .print-meta{display:inline;color:var(--muted);font-size:12px}
+  .print-foot{padding:14px 18px 0;color:var(--muted);font-size:10.5px;border-top:1px solid var(--line);margin-top:8px}
+  .tscroll{overflow:visible}
+  table.t{font-size:10.5px}
+  table.t th,table.t td{padding:5px 7px}
+  tr,.bcard,.acard,.kpi,.warn-line{break-inside:avoid;page-break-inside:avoid}
+  thead{display:table-header-group}
+  tfoot{display:table-row-group}
+  .sec-h{break-after:avoid;page-break-after:avoid}
+  .print-break{break-before:page;page-break-before:always;border-top:0}
+  .bsum{grid-template-columns:repeat(auto-fit,minmax(150px,1fr))}
+  .acards{grid-template-columns:repeat(2,minmax(0,1fr))}
+}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="topbar-in">
+    <div class="brand">
+      <div class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></div>
+      <div style="min-width:0">
+        <div class="brand-name">Bucket Allocation Planner</div>
+        <div class="brand-sub" id="brandSub">Multi-account income bucketing</div>
+      </div>
+    </div>
+    <div class="actions">
+      <span class="status" id="saveStatus"></span>
+      <div class="pop-wrap">
+        <button class="btn" id="openBtn" aria-haspopup="true" aria-expanded="false">Client plans ▾</button>
+        <div class="pop" id="openPop" hidden></div>
+      </div>
+      <button class="btn primary" id="saveBtn">Save plan</button>
+      <div class="pop-wrap">
+        <button class="btn" id="exportBtn" aria-haspopup="true" aria-expanded="false">Export ▾</button>
+        <div class="pop" id="exportPop" hidden>
+          <button class="item" data-exp="pdf"><span>Download PDF</span><span class="meta">.pdf</span></button>
+          <button class="item" data-exp="print"><span>Print…</span><span class="meta">printer</span></button>
+          <div class="sep"></div>
+          <button class="item" data-exp="copy"><span>Copy tables for Excel</span><span class="meta">clipboard</span></button>
+          <button class="item" data-exp="csv"><span>Download CSV</span><span class="meta">.csv</span></button>
+          <div class="sep"></div>
+          <button class="item" data-exp="json"><span>Download plan file</span><span class="meta">.json backup</span></button>
+          <button class="item" data-exp="import"><span>Open a plan file…</span><span class="meta">.json</span></button>
+        </div>
+      </div>
+      <input type="file" id="importFile" accept=".json,application/json" hidden>
+    </div>
+  </div>
+</header>
+
+<div class="wrap">
+  <div class="layout">
+    <!-- INPUTS -->
+    <div class="col" id="inputsCol">
+      <section class="panel" aria-labelledby="h-client">
+        <div class="panel-h"><h2 id="h-client">Client</h2><div class="aside" id="sampleFlagWrap"></div></div>
+        <div class="panel-b" id="clientPanel"></div>
+      </section>
+      <section class="panel" aria-labelledby="h-accts">
+        <div class="panel-h"><h2 id="h-accts">Accounts</h2>
+          <div class="aside">
+            <button class="btn small ghost" id="sortTaxBtn" title="Taxable and trust accounts first, then inherited IRAs, then tax-deferred, then Roth/tax-free">Sort by tax treatment</button>
+            <button class="btn small" id="addAcctBtn">+ Account</button>
+          </div>
+        </div>
+        <div class="panel-b">
+          <p class="hint" style="margin-bottom:10px">Order sets the funding priority. With sequential fill, the earlier buckets fill from the top account down.</p>
+          <div id="acctList"></div>
+        </div>
+      </section>
+      <section class="panel" aria-labelledby="h-buckets">
+        <div class="panel-h"><h2 id="h-buckets">Buckets &amp; strategy models</h2>
+          <div class="aside"><button class="btn small" id="addBucketBtn">+ Bucket</button></div>
+        </div>
+        <div class="panel-b">
+          <div id="bucketList"></div>
+          <details class="lib" style="margin-top:12px">
+            <summary>Strategy pick list</summary>
+            <p class="hint" style="margin-top:4px">These appear in every bucket's strategy menu. The list is remembered in this browser.</p>
+            <div class="newstrat" style="margin-top:8px">
+              <input class="in" id="libNewName" placeholder="Strategy or ticker, e.g. SGOV">
+              <select class="in" id="libNewCat" style="max-width:150px" aria-label="Category"></select>
+              <button class="btn small" id="libAddBtn">Add</button>
+            </div>
+            <div class="lib-list" id="libList"></div>
+          </details>
+        </div>
+      </section>
+    </div>
+
+    <!-- RESULTS -->
+    <div class="col">
+      <section class="panel" id="results" aria-live="polite"></section>
+    </div>
+  </div>
+</div>
+<div class="toast" id="toast" hidden></div>
+
+<script>
+(function(){
+"use strict";
+/* ---------- reference lists ---------- */
+const ACCOUNT_TYPES = [
+  ["Individual (taxable)","Taxable"],["Joint (JTWROS)","Taxable"],["Joint – TIC / Community Property","Taxable"],
+  ["Transfer on Death (TOD)","Taxable"],["Revocable Trust","Taxable"],["Trust – Distribution Account","Taxable"],
+  ["Irrevocable Trust","Taxable"],["UTMA / UGMA","Taxable"],["Corporate / Entity","Taxable"],
+  ["Traditional IRA","Tax-deferred"],["Rollover IRA","Tax-deferred"],["Inherited IRA","Inherited"],
+  ["SEP IRA","Tax-deferred"],["SIMPLE IRA","Tax-deferred"],["401(k)","Tax-deferred"],["403(b)","Tax-deferred"],
+  ["457(b)","Tax-deferred"],["Non-Qualified Annuity","Tax-deferred"],["Qualified Annuity","Tax-deferred"],
+  ["Roth IRA","Tax-free"],["Inherited Roth IRA","Tax-free"],["Roth 401(k)","Tax-free"],["HSA","Tax-free"],
+  ["529 Plan","Tax-free"],["Other","Other"]
+];
+const TAX_OF = Object.fromEntries(ACCOUNT_TYPES);
+const TAX_RANK = {"Taxable":0,"Inherited":1,"Tax-deferred":2,"Other":3,"Tax-free":4};
+const CATS = ["Cash & liquidity","Income / fixed income","Alternatives / balanced","Growth / equity","Other"];
+const DEFAULT_LIB = [
+  {name:"FDLXX",cat:"Cash & liquidity"},
+  {name:"FLXR",cat:"Income / fixed income"},
+  {name:"SHYG",cat:"Income / fixed income"},
+  {name:"Innovator Balanced Alternative",cat:"Alternatives / balanced"},
+  {name:"Market Leaders",cat:"Growth / equity"},
+  {name:"Dynamic Core Growth",cat:"Growth / equity"}
+];
+const BUCKET_NAMES = ["Bucket 1 · Income & liquidity","Bucket 2 · Intermediate","Bucket 3 · Long-term growth","Bucket 4","Bucket 5"];
+const MAX_BUCKETS = 5;
+
+/* ---------- helpers ---------- */
+const $ = s => document.querySelector(s);
+const uid = () => Math.random().toString(36).slice(2,10);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const usd = new Intl.NumberFormat("en-US",{style:"currency",currency:"USD",maximumFractionDigits:0});
+const $f = v => usd.format(Math.round(v||0));
+const pf = (v,d=1) => (isFinite(v)? (v*100).toFixed(d) : "0.0") + "%";
+const parseMoney = s => { const n = parseFloat(String(s).replace(/[^0-9.\-]/g,"")); return isFinite(n)? n : 0; };
+const fmtMoneyInput = v => v ? Math.round(v*100)/100 === Math.round(v) ? Math.round(v).toLocaleString("en-US") : v.toLocaleString("en-US",{maximumFractionDigits:2}) : "";
+const bucketColor = i => `var(--b${(i%5)+1})`;
+const todayISO = () => { const d=new Date(); return new Date(d.getTime()-d.getTimezoneOffset()*60000).toISOString().slice(0,10); };
+const fmtDate = iso => { if(!iso) return ""; const [y,m,d]=iso.split("-").map(Number); return new Date(y,m-1,d).toLocaleDateString("en-US",{month:"long",day:"numeric",year:"numeric"}); };
+
+/* ---------- state ---------- */
+const S = { plan:null, lib: DEFAULT_LIB.map(x=>({...x})), db:null, uid:null, saved:[], dirty:false, stratView:"account", isSample:false, libLoaded:false };
+
+function mkBucket(i, targetType, target, model){
+  return { id: uid(), name: BUCKET_NAMES[i] || `Bucket ${i+1}`, targetType: targetType||"dollar", target: target||0, model: model||[] };
+}
+function samplePlan(){
+  const b = [
+    mkBucket(0,"dollar",54000,[{s:"FDLXX",p:15},{s:"FLXR",p:35},{s:"SHYG",p:50}]),
+    mkBucket(1,"dollar",90000,[{s:"Innovator Balanced Alternative",p:100}]),
+    mkBucket(2,"dollar",0,[{s:"Market Leaders",p:30},{s:"Dynamic Core Growth",p:70}])
+  ];
+  return {
+    id: "sample", sample:true,
+    client:{ name:"", c1:"Alex", c2:"Jordan", date: todayISO(), annual: 54000, ...prepDefaults() },
+    method:"sequential",
+    buckets: b,
+    accounts:[
+      {id:uid(),name:"Trust – Distribution",type:"Trust – Distribution Account",owner:"Trust",num:"1001",value:315876,included:true,lock:"auto"},
+      {id:uid(),name:"Family Trust",type:"Revocable Trust",owner:"Trust",num:"1002",value:208757,included:true,lock:"auto"},
+      {id:uid(),name:"Inherited IRA",type:"Inherited IRA",owner:"Alex",num:"1003",value:63011,included:true,lock:"auto"},
+      {id:uid(),name:"Traditional IRA",type:"Traditional IRA",owner:"Alex",num:"1004",value:2170564,included:true,lock:"auto"},
+      {id:uid(),name:"Jordan's Roth IRA",type:"Roth IRA",owner:"Jordan",num:"1005",value:6002,included:false,lock:"auto"},
+      {id:uid(),name:"Alex's Roth IRA",type:"Roth IRA",owner:"Alex",num:"1006",value:40572,included:false,lock:"auto"}
+    ]
+  };
+}
+function prepDefaults(){ try{ const d=JSON.parse(localStorage.getItem("bap_prep")||"null"); if(d) return {firm:String(d.firm||""),advisor:String(d.advisor||"")}; }catch(_){} return {firm:"",advisor:""}; }
+function rememberPrep(c){ try{ localStorage.setItem("bap_prep", JSON.stringify({firm:c.firm||"",advisor:c.advisor||""})); }catch(_){} }
+function preparedBy(p){ const a=(p.client.advisor||"").trim(), f=(p.client.firm||"").trim(); return a&&f ? `${a}, ${f}` : (a||f); }
+function blankPlan(){
+  return {
+    id: "p_"+uid()+Date.now().toString(36), sample:false,
+    client:{ name:"", c1:"", c2:"", date: todayISO(), annual: 0, ...prepDefaults() },
+    method:"sequential",
+    buckets:[
+      mkBucket(0,"dollar",0,[{s:"FDLXX",p:100}]),
+      mkBucket(1,"dollar",0,[{s:"Innovator Balanced Alternative",p:100}]),
+      mkBucket(2,"dollar",0,[{s:"Dynamic Core Growth",p:100}])
+    ],
+    accounts:[ {id:uid(),name:"",type:"Joint (JTWROS)",owner:"Joint",num:"",value:0,included:true,lock:"auto"} ]
+  };
+}
+
+/* ---------- engine ---------- */
+function bucketTargets(plan, total){
+  const N = plan.buckets.length;
+  return plan.buckets.map((b,k)=>{
+    if(k===N-1) return null; // remainder
+    const t = +b.target||0;
+    if(b.targetType==="percent") return total * t/100;
+    if(b.targetType==="years") return t * (+plan.client.annual||0);
+    return t;
+  });
+}
+function compute(plan){
+  const N = plan.buckets.length;
+  const inc = plan.accounts.filter(a=>a.included);
+  const exc = plan.accounts.filter(a=>!a.included);
+  const total = inc.reduce((s,a)=>s+(+a.value||0),0);
+  const excludedTotal = exc.reduce((s,a)=>s+(+a.value||0),0);
+  const targets = bucketTargets(plan,total);
+  const fixedTargetSum = targets.slice(0,N-1).reduce((s,t)=>s+t,0);
+  targets[N-1] = Math.max(0,total-fixedTargetSum);
+  const alloc = {}; const filled = Array(N).fill(0);
+  const idxOf = id => plan.buckets.findIndex(b=>b.id===id);
+  const auto = [];
+  inc.forEach(a=>{
+    alloc[a.id] = Array(N).fill(0);
+    const li = a.lock && a.lock!=="auto" ? idxOf(a.lock) : -1;
+    if(li>=0){ alloc[a.id][li] = +a.value||0; filled[li] += +a.value||0; }
+    else auto.push(a);
+  });
+  const R = targets.map((t,k)=> k<N-1 ? Math.max(0,t-filled[k]) : 0);
+  const autoTotal = auto.reduce((s,a)=>s+(+a.value||0),0);
+  if(plan.method==="prorata"){
+    const need = R.reduce((s,r)=>s+r,0);
+    const scale = need>autoTotal && need>0 ? autoTotal/need : 1;
+    auto.forEach(a=>{ for(let k=0;k<N-1;k++){ alloc[a.id][k] = autoTotal>0 ? (+a.value||0)/autoTotal * R[k]*scale : 0; } });
+  } else {
+    for(let k=0;k<N-1;k++){
+      let rem = R[k];
+      for(const a of auto){
+        if(rem<=0) break;
+        const used = alloc[a.id].reduce((s,x)=>s+x,0);
+        const cap = Math.max(0,(+a.value||0)-used);
+        const x = Math.min(cap,rem);
+        alloc[a.id][k] += x; rem -= x;
+      }
+    }
+  }
+  auto.forEach(a=>{
+    const used = alloc[a.id].slice(0,N-1).reduce((s,x)=>s+x,0);
+    alloc[a.id][N-1] = Math.max(0,(+a.value||0)-used);
+  });
+  const bucketTotals = Array(N).fill(0);
+  inc.forEach(a=>alloc[a.id].forEach((x,k)=>bucketTotals[k]+=x));
+
+  // strategies
+  const modelSums = plan.buckets.map(b=>b.model.reduce((s,m)=>s+(+m.p||0),0));
+  const rows = []; // {acct, k, strat, amt}
+  inc.forEach(a=>{
+    plan.buckets.forEach((b,k)=>{
+      const base = alloc[a.id][k]; if(base<=0.004) return;
+      b.model.forEach(m=>{ if(!m.s) return; rows.push({a, k, s:m.s, amt: base*(+m.p||0)/100}); });
+      const un = base*(1-modelSums[k]/100);
+      if(Math.abs(un)>0.5) rows.push({a,k,s: un>0? "Unassigned" : "Over-allocated", amt: un, flag:true});
+    });
+  });
+
+  // warnings
+  const warnings = [];
+  if(!inc.length) warnings.push({lvl:"bad",msg:"No accounts are included in the plan. Add an account or switch one on."});
+  if(total>0 && fixedTargetSum > total + 0.5) warnings.push({lvl:"bad",msg:`Bucket targets add up to ${$f(fixedTargetSum)}, which is ${$f(fixedTargetSum-total)} more than the ${$f(total)} included. ${plan.buckets[N-1].name.split("·")[0].trim()} gets nothing.`});
+  for(let k=0;k<N-1;k++){
+    const d = bucketTotals[k]-targets[k];
+    if(d>0.5) warnings.push({lvl:"warn",msg:`${plan.buckets[k].name.split("·")[0].trim()} is ${$f(d)} over target because a whole account is assigned to it.`});
+    else if(d<-0.5 && total>0 && fixedTargetSum<=total+0.5) warnings.push({lvl:"warn",msg:`${plan.buckets[k].name.split("·")[0].trim()} is ${$f(-d)} short of target. Accounts assigned to other buckets leave too little to fill it.`});
+  }
+  plan.buckets.forEach((b,k)=>{
+    if(bucketTotals[k]>0.5 && Math.abs(modelSums[k]-100)>0.001)
+      warnings.push({lvl:"bad",msg:`${b.name.split("·")[0].trim()} strategy model totals ${modelSums[k].toFixed(2).replace(/\.00$/,"")}%, not 100%.`});
+  });
+  plan.buckets.forEach((b,k)=>{ if(b.targetType==="years" && k<N-1 && !(+plan.client.annual)) warnings.push({lvl:"warn",msg:`${b.name.split("·")[0].trim()} is set in years of distributions, but the annual distribution need is blank.`}); });
+
+  const tinyN = rows.filter(r=>!r.flag && isTiny(r.amt,+r.a.value||0)).length;
+  if(tinyN) warnings.push({lvl:"warn",msg:`${tinyN} strategy position${tinyN===1?" is":"s are"} under 1% of the account (shown in red).`});
+  return {N,inc,exc,total,excludedTotal,targets,alloc,bucketTotals,modelSums,rows,warnings};
+}
+
+/* whole-percent trade weights per account; largest-remainder so each account totals exactly 100% */
+const isTiny = (amt,val) => val>0 && amt>0.5 && amt/val < 0.01;
+function tradePcts(R){
+  const out = new Map();
+  R.inc.forEach(a=>{
+    const v=+a.value||0; if(v<=0) return;
+    const rs=R.rows.filter(r=>r.a.id===a.id && r.amt>0);
+    const raw=rs.map(r=>r.amt/v*100), fl=raw.map(Math.floor);
+    let left=Math.round(raw.reduce((s,x)=>s+x,0)) - fl.reduce((s,x)=>s+x,0);
+    raw.map((x,i)=>[x-fl[i],i]).sort((p,q)=>q[0]-p[0]).forEach(([,i])=>{ if(left>0){ fl[i]++; left--; } });
+    rs.forEach((r,i)=>out.set(r,fl[i]));
+  });
+  R.rows.forEach(r=>{ if(!out.has(r)) out.set(r, r.a.value? Math.round(r.amt/r.a.value*100) : 0); });
+  return out;
+}
+function clientNames(p){ return [p.client.c1,p.client.c2].map(x=>(x||"").trim()).filter(Boolean).join(" & "); }
+/* ---------- rendering: inputs ---------- */
+function ownerOptions(plan){
+  const o = [];
+  if(plan.client.c1) o.push(plan.client.c1);
+  if(plan.client.c2) o.push(plan.client.c2);
+  o.push("Joint","Trust","Entity","Other");
+  return o;
+}
+function renderClient(){
+  const c = S.plan.client;
+  $("#clientPanel").innerHTML = `
+    <div class="fgrid">
+      <label class="f span2">Client household<input class="in" id="c_name" placeholder="e.g. Smith Family" value="${esc(c.name)}"></label>
+      <label class="f">Client 1<input class="in" id="c_c1" value="${esc(c.c1)}" placeholder="First name"></label>
+      <label class="f">Client 2<input class="in" id="c_c2" value="${esc(c.c2)}" placeholder="First name (optional)"></label>
+      <label class="f">Plan date<input class="in" type="date" id="c_date" value="${esc(c.date)}"></label>
+      <label class="f">Annual distribution need<div class="money-wrap"><span>$</span><input class="in r" id="c_annual" inputmode="decimal" value="${esc(fmtMoneyInput(c.annual))}" placeholder="Optional"></div></label>
+      <label class="f">Firm name<input class="in" id="c_firm" value="${esc(c.firm)}" placeholder="Your firm"></label>
+      <label class="f">Advisor name<input class="in" id="c_adv" value="${esc(c.advisor)}" placeholder="Your name"></label>
+      <div class="span2" style="display:flex;flex-wrap:wrap;gap:8px 12px;align-items:center">
+        <span style="font-size:12px;color:var(--muted);font-weight:500">Fill method</span>
+        <div class="seg" role="group" aria-label="Fill method">
+          <button id="m_seq" aria-pressed="${S.plan.method!=="prorata"}">Sequential by account order</button>
+          <button id="m_pro" aria-pressed="${S.plan.method==="prorata"}">Pro rata across accounts</button>
+        </div>
+        <p class="hint" style="flex-basis:100%">${S.plan.method==="prorata" ? "Each bucket target is spread across accounts in proportion to their value, so every account holds a slice of every bucket." : "Bucket 1 fills from the first account, then the next, until the target is met. Bucket 2 continues from what is left. The last bucket takes the remainder of each account."}</p>
+      </div>
+    </div>`;
+}
+function renderAccounts(){
+  const p = S.plan, owners = ownerOptions(p);
+  $("#acctList").innerHTML = p.accounts.map((a,i)=>{
+    const tax = TAX_OF[a.type] || "Other";
+    const ownOpts = owners.includes(a.owner)||!a.owner ? owners : [...owners, a.owner];
+    return `<div class="acct${a.included?"":" off"}" data-acct="${a.id}">
+      <div class="order">
+        <button class="arrow" data-act="up" ${i===0?"disabled":""} aria-label="Move up">▲</button>
+        <span class="idx">${i+1}</span>
+        <button class="arrow" data-act="down" ${i===p.accounts.length-1?"disabled":""} aria-label="Move down">▼</button>
+      </div>
+      <div class="acct-main">
+        <label class="f c-name">Account name<input class="in" data-f="name" id="a_name_${a.id}" value="${esc(a.name)}" placeholder="e.g. Joint Brokerage"></label>
+        <label class="f c-val">Value<div class="money-wrap"><span>$</span><input class="in r" data-f="value" id="a_val_${a.id}" inputmode="decimal" value="${esc(fmtMoneyInput(a.value))}" placeholder="0"></div></label>
+        <label class="f c-type"><span>Account type <span class="tax">${esc(tax)}</span></span><select class="in" data-f="type" id="a_type_${a.id}">${ACCOUNT_TYPES.map(([t])=>`<option ${t===a.type?"selected":""}>${esc(t)}</option>`).join("")}</select></label>
+        <label class="f c-own">Owner<select class="in" data-f="owner" id="a_own_${a.id}">${ownOpts.map(o=>`<option ${o===a.owner?"selected":""}>${esc(o)}</option>`).join("")}</select></label>
+        <label class="f c-num">Acct # (last 4)<input class="in" data-f="num" id="a_num_${a.id}" value="${esc(a.num)}" maxlength="6" placeholder="••••"></label>
+        <label class="f c-lock">Bucket assignment<select class="in" data-f="lock" id="a_lock_${a.id}" ${a.included?"":"disabled"}>
+          <option value="auto" ${a.lock==="auto"?"selected":""}>Automatic (${p.method==="prorata"?"pro rata":"waterfall"})</option>
+          ${p.buckets.map(b=>`<option value="${b.id}" ${a.lock===b.id?"selected":""}>Entire account → ${esc(b.name.split("·")[0].trim())}</option>`).join("")}
+        </select></label>
+        <div class="c-foot">
+          <label class="toggle"><input type="checkbox" data-f="included" id="a_inc_${a.id}" ${a.included?"checked":""}>In plan</label>
+          <button class="xbtn" data-act="del" aria-label="Remove account" title="Remove account">✕</button>
+        </div>
+      </div>
+    </div>`;
+  }).join("") || `<p class="hint">No accounts yet.</p>`;
+}
+function stratOptions(sel){
+  const names = new Set(S.lib.map(l=>l.name));
+  const groups = CATS.map(c=>{
+    const items = S.lib.filter(l=>l.cat===c);
+    if(!items.length) return "";
+    return `<optgroup label="${esc(c)}">${items.map(l=>`<option ${l.name===sel?"selected":""}>${esc(l.name)}</option>`).join("")}</optgroup>`;
+  }).join("");
+  const extra = sel && !names.has(sel) ? `<option selected>${esc(sel)}</option>` : "";
+  return `<option value="" ${!sel?"selected":""}>Choose a strategy…</option>${extra}${groups}<option value="__new">+ New strategy…</option>`;
+}
+function renderBuckets(){
+  const p = S.plan, N = p.buckets.length;
+  $("#bucketList").innerHTML = p.buckets.map((b,k)=>{
+    const last = k===N-1;
+    const sum = b.model.reduce((s,m)=>s+(+m.p||0),0);
+    const ok = Math.abs(sum-100)<0.001;
+    return `<div class="bucket" data-bucket="${b.id}" style="--bc:${bucketColor(k)}">
+      <div class="bucket-top">
+        <span class="swatch" aria-hidden="true"></span>
+        <input class="in" data-bf="name" id="b_name_${b.id}" value="${esc(b.name)}" aria-label="Bucket name" style="font-weight:600">
+        <button class="xbtn" data-bact="del" ${N<=2?"disabled":""} aria-label="Remove bucket" title="Remove bucket">✕</button>
+      </div>
+      ${last ? `<div class="computed">Target: <b>remainder</b> of every account after the buckets above. <span data-bcomp="${k}"></span></div>` : `
+      <div class="bucket-target">
+        <select class="in" data-bf="targetType" id="b_tt_${b.id}" aria-label="Target type">
+          <option value="dollar" ${b.targetType==="dollar"?"selected":""}>Dollar amount</option>
+          <option value="percent" ${b.targetType==="percent"?"selected":""}>% of plan assets</option>
+          <option value="years" ${b.targetType==="years"?"selected":""}>Years of distributions</option>
+        </select>
+        <div class="${b.targetType==="dollar"?"money-wrap":"pct-wrap"}">
+          ${b.targetType==="dollar"?"<span>$</span>":`<span>${b.targetType==="percent"?"%":"yrs"}</span>`}
+          <input class="in r" data-bf="target" id="b_t_${b.id}" inputmode="decimal" value="${esc(b.targetType==="dollar"?fmtMoneyInput(b.target):(b.target||""))}" placeholder="0" aria-label="Target" style="${b.targetType==="years"?"padding-right:32px":""}">
+        </div>
+      </div>
+      <div class="computed" data-bcomp="${k}"></div>`}
+      <div style="display:flex;flex-direction:column;gap:6px">
+        ${b.model.map((m,j)=>`<div class="model-row" data-mi="${j}">
+          <select class="in" data-mf="s" id="m_s_${b.id}_${j}" aria-label="Strategy">${stratOptions(m.s)}</select>
+          <div class="pct-wrap"><input class="in r" data-mf="p" id="m_p_${b.id}_${j}" inputmode="decimal" value="${esc(m.p===""?"":m.p)}" aria-label="Percent of bucket"><span>%</span></div>
+          <button class="xbtn" data-mact="del" aria-label="Remove strategy">✕</button>
+        </div>
+        <div class="newstrat" data-newfor="${j}" hidden><input class="in" placeholder="New strategy name" aria-label="New strategy name"><button class="btn small" data-mact="addnew">Add</button><button class="btn small ghost" data-mact="cancelnew">Cancel</button></div>`).join("")}
+      </div>
+      <div class="model-foot">
+        <button class="btn small" data-mact="add">+ Strategy</button>
+        <span class="pill ${ok?"good":(b.model.length?"bad":"neutral")}" data-msum>${ok?"Model totals 100%":`Model totals ${+sum.toFixed(2)}%`}</span>
+        ${b.model.length>1&&!ok?`<button class="btn small ghost" data-mact="balance" title="Adjust the last strategy so the model totals 100%">Balance to 100%</button>`:""}
+      </div>
+    </div>`;
+  }).join("");
+  $("#addBucketBtn").disabled = N>=MAX_BUCKETS;
+}
+function renderLib(){
+  $("#libNewCat").innerHTML = CATS.map(c=>`<option>${esc(c)}</option>`).join("");
+  $("#libList").innerHTML = S.lib.map((l,i)=>`<div class="lib-item"><span>${esc(l.name)}</span><span class="tax cat">${esc(l.cat)}</span><button class="xbtn" data-lib="${i}" aria-label="Remove ${esc(l.name)} from list">✕</button></div>`).join("");
+}
+function renderInputs(){ renderClient(); renderAccounts(); renderBuckets(); renderLib(); }
+
+/* ---------- rendering: results ---------- */
+function shortB(b){ return b.name.split("·")[0].trim(); }
+function renderResults(){
+  const p = S.plan, R = compute(p); S.last = R;
+  const N = R.N;
+  // computed hints under bucket targets
+  document.querySelectorAll("[data-bcomp]").forEach(el=>{
+    const k = +el.dataset.bcomp;
+    const t = R.targets[k];
+    el.innerHTML = k===N-1 ? `Currently <b>${$f(R.bucketTotals[k])}</b> (${pf(R.total?R.bucketTotals[k]/R.total:0)} of plan assets).`
+      : `= <b>${$f(t)}</b> · ${pf(R.total? t/R.total : 0)} of plan assets`;
+  });
+  document.querySelectorAll("[data-bucket]").forEach((el,k)=>{
+    const b = p.buckets[k]; if(!b) return;
+    const sum = b.model.reduce((s,m)=>s+(+m.p||0),0), ok = Math.abs(sum-100)<0.001;
+    const pill = el.querySelector("[data-msum]");
+    if(pill){ pill.className = "pill "+(ok?"good":(b.model.length?"bad":"neutral")); pill.textContent = ok?"Model totals 100%":`Model totals ${+sum.toFixed(2)}%`; }
+  });
+  $("#brandSub").textContent = p.client.name ? p.client.name : "Multi-account income bucketing";
+
+  const householdTotal = R.total + R.excludedTotal;
+  const legend = `<div class="legend">${p.buckets.map((b,k)=>`<span style="--bc:${bucketColor(k)}">${esc(shortB(b))}</span>`).join("")}</div>`;
+
+  // allocation table
+  const allocRows = R.inc.map(a=>{
+    const al = R.alloc[a.id], v = +a.value||0;
+    const locked = a.lock!=="auto" && p.buckets.some(b=>b.id===a.lock);
+    return `<tr>
+      <td class="acct-cell"><div class="nm">${esc(a.name||"Unnamed account")}${a.num?` <span class="meta">••${esc(a.num)}</span>`:""}</div>
+        <div class="meta">${esc(a.type)} · ${esc(a.owner||"")}${locked?" · assigned":""}</div>
+        <div class="stack" aria-hidden="true">${al.map((x,k)=> v>0&&x>0?`<i style="width:${x/v*100}%;background:${bucketColor(k)}"></i>`:"").join("")}</div></td>
+      <td class="n">${$f(v)}</td>
+      ${al.map(x=>`<td class="n">${x>0.5?$f(x):"–"}<span class="p">${x>0.5&&v?pf(x/v):""}</span></td>`).join("")}
+    </tr>`;
+  }).join("");
+  const excRows = R.exc.length ? `<tr class="grp"><td colspan="${N+2}">Not included in plan</td></tr>` + R.exc.map(a=>`<tr class="off"><td class="acct-cell"><div class="nm">${esc(a.name||"Unnamed account")}${a.num?` <span class="meta">••${esc(a.num)}</span>`:""}</div><div class="meta">${esc(a.type)} · ${esc(a.owner||"")}</div></td><td class="n">${$f(a.value)}</td><td colspan="${N}"></td></tr>`).join("") : "";
+
+  // strategies — matrix by strategy
+  const strategiesByBucket = p.buckets.map((b,k)=>{
+    const names = [];
+    b.model.forEach(m=>{ if(m.s && !names.includes(m.s)) names.push(m.s); });
+    if(R.rows.some(r=>r.k===k && r.flag)) names.push(...[...new Set(R.rows.filter(r=>r.k===k&&r.flag).map(r=>r.s))]);
+    return names;
+  });
+  const cell = (a,k,s) => R.rows.filter(r=>r.a.id===a.id && r.k===k && r.s===s).reduce((t,r)=>t+r.amt,0);
+  const matrix = `<table class="t"><thead><tr><th>Strategy</th><th class="n">Model %</th>${R.inc.map(a=>`<th class="n" title="${esc(a.name)}">${esc(a.name||"Account")}${a.num?`<span class="p">••${esc(a.num)}</span>`:""}</th>`).join("")}<th class="n">Total</th></tr></thead><tbody>
+    ${p.buckets.map((b,k)=>{
+      const names = strategiesByBucket[k];
+      const body = names.map(s=>{
+        const m = b.model.find(x=>x.s===s);
+        const vals = R.inc.map(a=>cell(a,k,s));
+        const tot = vals.reduce((x,y)=>x+y,0);
+        return `<tr><td>${esc(s)}</td><td class="n">${m?(+m.p||0)+"%":"–"}</td>${vals.map((v,i)=>`<td class="n${isTiny(v,+R.inc[i].value||0)?" tiny":""}">${Math.abs(v)>0.5?$f(v):"–"}<span class="p">${Math.abs(v)>0.5&&R.inc[i].value?pf(v/R.inc[i].value):""}</span></td>`).join("")}<td class="n">${Math.abs(tot)>0.5?$f(tot):"–"}</td></tr>`;
+      }).join("");
+      const bt = R.inc.map(a=>R.alloc[a.id][k]);
+      return `<tr class="grp" style="--bc:${bucketColor(k)}"><td colspan="${R.inc.length+3}"><span class="dot"></span>${esc(b.name)}</td></tr>${body}
+        <tr class="sub"><td>Total ${esc(shortB(b))}</td><td class="n">${+R.modelSums[k].toFixed(2)}%</td>${bt.map((v,i)=>`<td class="n">${v>0.5?$f(v):"–"}<span class="p">${v>0.5&&R.inc[i].value?pf(v/R.inc[i].value):""}</span></td>`).join("")}<td class="n">${$f(R.bucketTotals[k])}</td></tr>`;
+    }).join("")}
+    </tbody><tfoot><tr><td>Account totals</td><td></td>${R.inc.map(a=>`<td class="n">${$f(a.value)}</td>`).join("")}<td class="n">${$f(R.total)}</td></tr></tfoot></table>`;
+
+  // strategies — by account cards
+  const TP = tradePcts(R);
+  const cards = R.inc.map(a=>{
+    const rs = R.rows.filter(r=>r.a.id===a.id && Math.abs(r.amt)>0.5);
+    return `<div class="acard"><div class="acard-h"><span class="nm">${esc(a.name||"Unnamed account")}</span><span class="tax">${esc(TAX_OF[a.type]||"Other")}</span>${a.num?`<span class="meta" style="color:var(--muted);font-size:12px">••${esc(a.num)}</span>`:""}<span class="v">${$f(a.value)}</span></div>
+      <table class="t"><thead><tr><th>Strategy</th><th class="n">Amount</th><th class="n">% of acct</th></tr></thead><tbody>
+      ${p.buckets.map((b,k)=>{
+        const br = rs.filter(r=>r.k===k); if(!br.length) return "";
+        return `<tr class="grp" style="--bc:${bucketColor(k)}"><td colspan="3"><span class="dot"></span>${esc(shortB(b))} · ${$f(R.alloc[a.id][k])}</td></tr>` +
+          br.map(r=>`<tr${!r.flag&&isTiny(r.amt,+a.value||0)?' class="tiny" title="Under 1% of this account"':""}><td>${r.flag?`<span class="pill bad">${esc(r.s)}</span>`:esc(r.s)}</td><td class="n">${$f(r.amt)}</td><td class="n">${a.value?TP.get(r)+"%":""}</td></tr>`).join("");
+      }).join("") || `<tr><td colspan="3" style="color:var(--muted)">No value to allocate.</td></tr>`}
+      </tbody></table></div>`;
+  }).join("");
+
+  $("#results").innerHTML = `
+    <div class="results-head"><h2 style="font:600 22px/1.2 var(--serif)">Bucket Allocation Planner</h2><span class="date">${esc(fmtDate(p.client.date))}</span><span class="print-only print-meta">${p.method==="prorata"?"Pro rata fill":"Sequential fill by account order"}</span>
+      <div class="who">${p.client.name.trim()?`<span>Household: <b>${esc(p.client.name.trim())}</b></span>`:""}${clientNames(p)?`<span>Clients: <b>${esc(clientNames(p))}</b></span>`:""}<span>Annual distribution need: <b>${+p.client.annual?$f(p.client.annual):"Not set"}</b></span>${preparedBy(p)?`<span>Prepared by: <b>${esc(preparedBy(p))}</b></span>`:""}</div></div>
+    <div class="warnings">${R.warnings.map(w=>`<div class="warn-line ${w.lvl==="bad"?"bad":""}"><span aria-hidden="true">${w.lvl==="bad"?"●":"▲"}</span><span>${esc(w.msg)}</span></div>`).join("")}</div>
+    <div class="kpis" style="margin-top:12px">
+      <div class="kpi"><div class="k">Plan assets</div><div class="v">${$f(R.total)}</div><div class="s">${R.inc.length} account${R.inc.length===1?"":"s"} in plan</div></div>
+      <div class="kpi"><div class="k">Not included</div><div class="v">${$f(R.excludedTotal)}</div><div class="s">${R.exc.length} account${R.exc.length===1?"":"s"}</div></div>
+      <div class="kpi"><div class="k">Household total</div><div class="v">${$f(householdTotal)}</div><div class="s">${p.method==="prorata"?"Pro rata fill":"Sequential fill"}</div></div>
+    </div>
+    <div class="bsum">${p.buckets.map((b,k)=>{
+      const got = R.bucketTotals[k], t = R.targets[k], last = k===N-1;
+      const diff = got - t;
+      const st = last ? `<span class="pill neutral">Remainder</span>` : Math.abs(diff)<=0.5 ? `<span class="pill good">On target</span>` : diff>0 ? `<span class="pill warn">Over ${$f(diff)}</span>` : `<span class="pill bad">Short ${$f(-diff)}</span>`;
+      const fillPct = last ? (R.total? got/R.total:0) : (t>0? Math.min(1,got/t) : (got>0?1:0));
+      return `<div class="bcard" style="--bc:${bucketColor(k)}"><div class="t">${esc(b.name)}</div><div class="amt">${$f(got)}</div>
+        <div class="sub">${last?`${pf(R.total?got/R.total:0)} of plan assets`:`Target ${$f(t)} · ${pf(R.total?got/R.total:0)} of plan`}</div>
+        ${+p.client.annual?`<div class="sub">≈ ${(got/p.client.annual).toFixed(1)} years of distributions</div>`:""}
+        <div class="meter" aria-hidden="true"><i style="width:${(fillPct*100).toFixed(2)}%"></i></div><div>${st}</div></div>`;
+    }).join("")}</div>
+
+    <div class="sec-h print-break-avoid"><h3>Bucket allocation by account</h3><div class="aside">${legend}</div></div>
+    <div class="tscroll"><table class="t"><thead><tr><th>Account</th><th class="n">Value</th>${p.buckets.map(b=>`<th class="n">${esc(shortB(b))}</th>`).join("")}</tr></thead>
+      <tbody>${allocRows || `<tr><td colspan="${N+2}" style="color:var(--muted)">No accounts in plan.</td></tr>`}${excRows}</tbody>
+      <tfoot><tr><td>Plan total</td><td class="n">${$f(R.total)}</td>${R.bucketTotals.map(x=>`<td class="n">${$f(x)}<span class="p">${pf(R.total?x/R.total:0)}</span></td>`).join("")}</tr></tfoot></table></div>
+
+    <div class="sec-h print-break"><h3>Strategies by account</h3><div class="aside no-print"><div class="seg" role="group" aria-label="Strategy view">
+      <button data-sv="account" aria-pressed="${S.stratView==="account"}">Account cards</button>
+      <button data-sv="matrix" aria-pressed="${S.stratView==="matrix"}">Model allocation grid</button></div></div></div>
+    ${!R.inc.length ? `<div class="empty">Add accounts to see strategy dollars.</div>` : S.printMode ? `<div class="tscroll">${matrix}</div><div class="sec-h print-break"><h3>Trade detail by account</h3></div><div class="acards">${cards}</div>` : (S.stratView==="matrix" ? `<div class="tscroll">${matrix}</div>` : `<div class="acards">${cards}</div>`)}
+    <div class="print-only print-foot">Prepared ${esc(fmtDate(todayISO()))}. Amounts are rounded to whole dollars. For planning purposes; confirm values before placing trades.</div>
+  `;
+}
+function renderAll(){ renderInputs(); renderResults(); }
+
+/* ---------- mutations ---------- */
+function touch(structural){
+  S.dirty = true;
+  if(S.plan.sample){ /* editing the example keeps it flagged until saved under a name */ }
+  if(structural) renderAll(); else renderResults();
+  updateStatus(); saveDraft();
+}
+function findAcct(el){ const id = el.closest("[data-acct]")?.dataset.acct; return S.plan.accounts.find(a=>a.id===id); }
+function findBucket(el){ const id = el.closest("[data-bucket]")?.dataset.bucket; return S.plan.buckets.find(b=>b.id===id); }
+
+// client panel
+$("#clientPanel").addEventListener("input", e=>{
+  const c = S.plan.client, t = e.target;
+  if(t.id==="c_name") c.name = t.value;
+  else if(t.id==="c_c1") c.c1 = t.value;
+  else if(t.id==="c_c2") c.c2 = t.value;
+  else if(t.id==="c_date") c.date = t.value;
+  else if(t.id==="c_annual") c.annual = parseMoney(t.value);
+  else if(t.id==="c_firm"){ c.firm = t.value; rememberPrep(c); }
+  else if(t.id==="c_adv"){ c.advisor = t.value; rememberPrep(c); }
+  else return;
+  touch(false);
+});
+$("#clientPanel").addEventListener("change", e=>{
+  if(e.target.id==="c_c1"||e.target.id==="c_c2"){ renderAccounts(); }
+  if(e.target.id==="c_annual"){ e.target.value = fmtMoneyInput(S.plan.client.annual); }
+});
+$("#clientPanel").addEventListener("click", e=>{
+  if(e.target.id==="m_seq"){ S.plan.method="sequential"; touch(true); }
+  if(e.target.id==="m_pro"){ S.plan.method="prorata"; touch(true); }
+});
+
+// accounts
+$("#acctList").addEventListener("input", e=>{
+  const a = findAcct(e.target); if(!a) return; const f = e.target.dataset.f;
+  if(f==="name"||f==="num") a[f] = e.target.value;
+  else if(f==="value") a.value = parseMoney(e.target.value);
+  else return;
+  touch(false);
+});
+$("#acctList").addEventListener("change", e=>{
+  const a = findAcct(e.target); if(!a) return; const f = e.target.dataset.f;
+  if(f==="value"){ e.target.value = fmtMoneyInput(a.value); return; }
+  if(f==="type"){ a.type = e.target.value; if(/Trust/.test(a.type) && (a.owner==="Joint"||!a.owner)) a.owner="Trust"; touch(true); }
+  if(f==="owner"){ a.owner = e.target.value; touch(false); }
+  if(f==="lock"){ a.lock = e.target.value; touch(false); }
+  if(f==="included"){ a.included = e.target.checked; if(!a.included) a.lock="auto"; touch(true); }
+});
+$("#acctList").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-act]"); if(!btn) return;
+  const a = findAcct(btn); const arr = S.plan.accounts; const i = arr.indexOf(a);
+  if(btn.dataset.act==="up" && i>0){ [arr[i-1],arr[i]]=[arr[i],arr[i-1]]; touch(true); focusLater(`[data-acct="${a.id}"] [data-act="up"]`); }
+  if(btn.dataset.act==="down" && i<arr.length-1){ [arr[i+1],arr[i]]=[arr[i],arr[i+1]]; touch(true); focusLater(`[data-acct="${a.id}"] [data-act="down"]`); }
+  if(btn.dataset.act==="del"){ arr.splice(i,1); touch(true); }
+});
+function focusLater(sel){ requestAnimationFrame(()=>{ const el=document.querySelector(sel); if(el && !el.disabled) el.focus(); }); }
+$("#addAcctBtn").addEventListener("click", ()=>{
+  const a = {id:uid(),name:"",type:"Individual (taxable)",owner:S.plan.client.c1||"Joint",num:"",value:0,included:true,lock:"auto"};
+  S.plan.accounts.push(a); touch(true); focusLater(`#a_name_${a.id}`);
+});
+$("#sortTaxBtn").addEventListener("click", ()=>{
+  const arr = S.plan.accounts.map((a,i)=>({a,i}));
+  arr.sort((x,y)=> (TAX_RANK[TAX_OF[x.a.type]||"Other"]-TAX_RANK[TAX_OF[y.a.type]||"Other"]) || x.i-y.i);
+  S.plan.accounts = arr.map(x=>x.a); touch(true); toast("Sorted: taxable & trust, inherited, tax-deferred, then tax-free");
+});
+
+// buckets
+$("#bucketList").addEventListener("input", e=>{
+  const b = findBucket(e.target); if(!b) return; const t = e.target;
+  if(t.dataset.bf==="name"){ b.name = t.value; touch(false); return; }
+  if(t.dataset.bf==="target"){ b.target = b.targetType==="dollar" ? parseMoney(t.value) : (parseFloat(t.value)||0); touch(false); return; }
+  if(t.dataset.mf==="p"){ const j = +t.closest("[data-mi]").dataset.mi; const v = t.value.trim(); b.model[j].p = v===""? 0 : (parseFloat(v)||0); touch(false); }
+});
+$("#bucketList").addEventListener("change", e=>{
+  const b = findBucket(e.target); if(!b) return; const t = e.target;
+  if(t.dataset.bf==="name"){ renderAccounts(); renderResults(); return; }
+  if(t.dataset.bf==="target" && b.targetType==="dollar"){ t.value = fmtMoneyInput(b.target); return; }
+  if(t.dataset.bf==="targetType"){
+    const R = S.last; const k = S.plan.buckets.indexOf(b); const cur = R ? R.targets[k] : 0;
+    b.targetType = t.value;
+    if(t.value==="dollar") b.target = Math.round(cur||0);
+    else if(t.value==="percent") b.target = R&&R.total ? +(cur/R.total*100).toFixed(2) : 0;
+    else b.target = (+S.plan.client.annual)? +((cur||0)/S.plan.client.annual).toFixed(2) : 0;
+    touch(true); return;
+  }
+  if(t.dataset.mf==="s"){
+    const row = t.closest("[data-mi]"); const j = +row.dataset.mi;
+    if(t.value==="__new"){
+      t.value = b.model[j].s || "";
+      const box = row.nextElementSibling; box.hidden = false; box.querySelector("input").focus();
+      return;
+    }
+    b.model[j].s = t.value; touch(false);
+  }
+});
+$("#bucketList").addEventListener("keydown", e=>{
+  if(e.key==="Enter" && e.target.closest(".newstrat")){ e.preventDefault(); e.target.closest(".newstrat").querySelector('[data-mact="addnew"]').click(); }
+});
+$("#bucketList").addEventListener("click", e=>{
+  const btn = e.target.closest("[data-mact],[data-bact]"); if(!btn) return;
+  const b = findBucket(btn); const k = S.plan.buckets.indexOf(b);
+  if(btn.dataset.bact==="del"){
+    if(S.plan.buckets.length<=2) return;
+    S.plan.buckets.splice(k,1);
+    S.plan.accounts.forEach(a=>{ if(a.lock===b.id) a.lock="auto"; });
+    touch(true); return;
+  }
+  const act = btn.dataset.mact;
+  if(act==="add"){ b.model.push({s:"",p:Math.max(0,+(100-b.model.reduce((s,m)=>s+(+m.p||0),0)).toFixed(2))}); touch(true); focusLater(`#m_s_${b.id}_${b.model.length-1}`); }
+  if(act==="del"){ const j = +btn.closest("[data-mi]").dataset.mi; b.model.splice(j,1); touch(true); }
+  if(act==="balance"){ const others = b.model.slice(0,-1).reduce((s,m)=>s+(+m.p||0),0); b.model[b.model.length-1].p = +(100-others).toFixed(4); touch(true); }
+  if(act==="cancelnew"){ btn.closest(".newstrat").hidden = true; }
+  if(act==="addnew"){
+    const box = btn.closest(".newstrat"); const j = +box.dataset.newfor; const name = box.querySelector("input").value.trim();
+    if(!name) return;
+    if(!S.lib.some(l=>l.name.toLowerCase()===name.toLowerCase())){ S.lib.push({name,cat:guessCat(k)}); saveLib(); }
+    b.model[j].s = S.lib.find(l=>l.name.toLowerCase()===name.toLowerCase()).name; touch(true); renderLib();
+  }
+});
+function guessCat(k){ const N=S.plan.buckets.length; if(k===0) return CATS[0]; if(k===N-1) return CATS[3]; return CATS[2]; }
+$("#addBucketBtn").addEventListener("click", ()=>{
+  const p = S.plan; if(p.buckets.length>=MAX_BUCKETS) return;
+  // insert before the remainder bucket
+  const nb = mkBucket(p.buckets.length-1,"dollar",0,[]);
+  nb.name = `Bucket ${p.buckets.length}`;
+  p.buckets.splice(p.buckets.length-1,0,nb);
+  renumber(); touch(true);
+});
+function renumber(){
+  S.plan.buckets.forEach((b,k)=>{ b.name = b.name.replace(/^Bucket \d+/, `Bucket ${k+1}`); });
+}
+
+// strategy library
+$("#libAddBtn").addEventListener("click", ()=>{
+  const name = $("#libNewName").value.trim(); if(!name) return;
+  if(S.lib.some(l=>l.name.toLowerCase()===name.toLowerCase())){ toast(`${name} is already in the list`); return; }
+  S.lib.push({name,cat:$("#libNewCat").value}); $("#libNewName").value="";
+  saveLib(); renderLib(); renderBuckets(); renderResults(); toast(`Added ${name}`);
+});
+$("#libNewName").addEventListener("keydown", e=>{ if(e.key==="Enter"){ e.preventDefault(); $("#libAddBtn").click(); }});
+$("#libList").addEventListener("click", e=>{
+  const i = e.target.closest("[data-lib]")?.dataset.lib; if(i==null) return;
+  const [rm] = S.lib.splice(+i,1); saveLib(); renderLib(); renderBuckets(); renderResults(); toast(`Removed ${rm.name} from the pick list`);
+});
+
+// results view toggle
+$("#results").addEventListener("click", e=>{
+  const sv = e.target.closest("[data-sv]"); if(!sv) return;
+  S.stratView = sv.dataset.sv; try{ localStorage.setItem("bap_view", S.stratView); }catch(_){}
+  renderResults();
+});
+
+/* ---------- toast & status ---------- */
+let toastT;
+function toast(msg){ const t=$("#toast"); t.textContent=msg; t.hidden=false; clearTimeout(toastT); toastT=setTimeout(()=>t.hidden=true,2600); }
+function updateStatus(){
+  const s = $("#saveStatus");
+  s.textContent = S.dirty ? "Unsaved changes" : (S.plan.sample ? "" : "Saved on this device"); s.className = "status"+(S.dirty?" dirty":"");
+}
+
+/* ---------- draft (per-browser convenience) ---------- */
+let draftT;
+function writeDraft(){ clearTimeout(draftT); try{ localStorage.setItem("bap_draft", JSON.stringify({plan:S.plan,dirty:S.dirty})); }catch(_){} }
+function saveDraft(){ clearTimeout(draftT); draftT = setTimeout(writeDraft,400); }
+window.addEventListener("pagehide", writeDraft);
+document.addEventListener("visibilitychange", ()=>{ if(document.visibilityState==="hidden") writeDraft(); });
+function loadDraft(){ try{ const d = JSON.parse(localStorage.getItem("bap_draft")||"null"); if(d && d.plan && d.plan.buckets) return d; }catch(_){} return null; }
+
+/* ---------- persistence (this browser only; nothing leaves the device) ---------- */
+const LS_PLANS="bap_plans", LS_LIB="bap_lib";
+function lsGet(k,d){ try{ const v = JSON.parse(localStorage.getItem(k)||"null"); return v ?? d; }catch(_){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k, JSON.stringify(v)); return true; }catch(_){ return false; } }
+function storageOK(){ try{ const k="bap_t"; localStorage.setItem(k,"1"); localStorage.removeItem(k); return true; }catch(_){ return false; } }
+function refreshSaved(){
+  const all = lsGet(LS_PLANS,{});
+  S.saved = Object.entries(all).map(([id,v])=>({id,...v})).sort((a,b)=>(b.updatedAt||"").localeCompare(a.updatedAt||""));
+}
+function initStorage(){
+  S.db = storageOK();
+  const lib = lsGet(LS_LIB,null);
+  if(Array.isArray(lib) && lib.length){ S.lib = lib.map(x=>({name:String(x.name),cat:CATS.includes(x.cat)?x.cat:"Other"})); renderLib(); renderBuckets(); renderResults(); }
+  refreshSaved(); renderOpenPop(); updateStatus();
+  window.addEventListener("storage", e=>{ if(e.key===LS_PLANS){ refreshSaved(); renderOpenPop(); } });
+}
+function saveLib(){ if(S.db) lsSet(LS_LIB, S.lib); }
+function savePlan(){
+  const p = S.plan;
+  if(!p.client.name.trim()){ toast("Add a client name before saving"); $("#c_name")?.focus(); return; }
+  if(!S.db){ toast("This browser is blocking storage. Use Export → Download plan file."); return; }
+  if(p.sample || !p.id || p.id==="sample"){ p.id = "p_"+uid()+Date.now().toString(36); p.sample=false; }
+  const all = lsGet(LS_PLANS,{});
+  all[p.id] = {kind:"plan", clientName:p.client.name.trim(), planDate:p.client.date||"", updatedAt:new Date().toISOString(), plan: JSON.parse(JSON.stringify(p))};
+  if(!lsSet(LS_PLANS, all)){ toast("Couldn't save. Browser storage may be full or blocked."); return; }
+  S.dirty = false; refreshSaved(); toast(`Saved ${p.client.name.trim()} in this browser`); renderClient(); renderResults(); writeDraft(); updateStatus();
+}
+$("#saveBtn").addEventListener("click", savePlan);
+
+let pendingDelete = null;
+function renderOpenPop(){
+  const pop = $("#openPop");
+  const list = S.saved.map(s=>`<div class="plan-row"><button class="item" data-open="${esc(s.id)}"><span>${esc(s.clientName||"Untitled")}</span><span class="meta">${esc(s.planDate?fmtDate(s.planDate):"")}</span></button>
+    <button class="btn small ${pendingDelete===s.id?"danger":"ghost"}" data-del="${esc(s.id)}" aria-label="Delete ${esc(s.clientName)}">${pendingDelete===s.id?"Confirm":"Delete"}</button></div>`).join("");
+  pop.innerHTML = `<button class="item" data-new="1"><span>New client plan</span></button>
+    <button class="item" data-sample="1"><span>Load example household</span></button>
+    ${S.plan && !S.plan.sample && S.plan.client.name ? `<button class="item" data-dup="1"><span>Duplicate this plan</span></button>` : ""}
+    <div class="sep"></div>
+    ${S.db ? (list || `<div class="note">No saved plans yet. Enter a client and choose Save plan.</div>`) : `<div class="note">This browser is blocking storage. Use Export → Download plan file to keep a copy.</div>`}
+    <div class="note" style="font-size:11.5px">Plans are stored only in this browser on this device. Nothing is sent anywhere. Use Export → Download plan file to back up or move a plan.</div>`;
+}
+function openPop(which, open){
+  const pop = $(which==="open"?"#openPop":"#exportPop"), btn = $(which==="open"?"#openBtn":"#exportBtn");
+  const willOpen = open ?? pop.hidden;
+  $("#openPop").hidden = true; $("#exportPop").hidden = true; $("#openBtn").setAttribute("aria-expanded","false"); $("#exportBtn").setAttribute("aria-expanded","false");
+  if(willOpen){ if(which==="open"){ pendingDelete=null; refreshSaved(); renderOpenPop(); } pop.hidden=false; btn.setAttribute("aria-expanded","true"); }
+}
+$("#openBtn").addEventListener("click", e=>{ e.stopPropagation(); openPop("open"); });
+$("#exportBtn").addEventListener("click", e=>{ e.stopPropagation(); openPop("export"); });
+document.addEventListener("click", e=>{ if(!e.target.closest(".pop-wrap")) openPop("open",false); });
+document.addEventListener("keydown", e=>{ if(e.key==="Escape") openPop("open",false); });
+$("#openPop").addEventListener("click", e=>{
+  const t = e.target.closest("button"); if(!t) return;
+  if(t.dataset.new){ loadPlan(blankPlan()); openPop("open",false); focusLater("#c_name"); return; }
+  if(t.dataset.sample){ loadPlan(samplePlan()); openPop("open",false); return; }
+  if(t.dataset.dup){ const c = JSON.parse(JSON.stringify(S.plan)); c.id="p_"+uid()+Date.now().toString(36); c.client.name = c.client.name+" (copy)"; c.client.date=todayISO(); loadPlan(c,true); openPop("open",false); toast("Duplicated. Save to keep the copy."); return; }
+  if(t.dataset.open){ const s = S.saved.find(x=>x.id===t.dataset.open); if(s && s.plan){ loadPlan(JSON.parse(JSON.stringify(s.plan))); openPop("open",false); toast(`Opened ${s.clientName}`); } return; }
+  if(t.dataset.del){
+    e.stopPropagation();
+    if(pendingDelete!==t.dataset.del){ pendingDelete = t.dataset.del; renderOpenPop(); return; }
+    const id = pendingDelete; pendingDelete=null;
+    const all = lsGet(LS_PLANS,{}); delete all[id]; lsSet(LS_PLANS,all); refreshSaved();
+    toast("Plan deleted"); if(S.plan.id===id){ S.dirty=true; updateStatus(); }
+    renderOpenPop();
+  }
+});
+function normalizePlan(p){
+  p.client = Object.assign({name:"",c1:"",c2:"",date:todayISO(),annual:0,firm:"",advisor:""}, p.client||{});
+  p.method = p.method==="prorata"?"prorata":"sequential";
+  p.buckets = (p.buckets||[]).map(b=>({id:b.id||uid(),name:b.name||"Bucket",targetType:["dollar","percent","years"].includes(b.targetType)?b.targetType:"dollar",target:+b.target||0,model:(b.model||[]).map(m=>({s:String(m.s||""),p:+m.p||0}))}));
+  while(p.buckets.length<2) p.buckets.push(mkBucket(p.buckets.length));
+  p.accounts = (p.accounts||[]).map(a=>({id:a.id||uid(),name:String(a.name||""),type:TAX_OF[a.type]?a.type:"Other",owner:String(a.owner||""),num:String(a.num||""),value:+a.value||0,included:a.included!==false,lock:a.lock||"auto"}));
+  return p;
+}
+function loadPlan(p, dirty){ S.plan = normalizePlan(p); S.dirty = !!dirty; renderAll(); updateStatus(); saveDraft(); }
+
+/* ---------- export ---------- */
+function csvCell(v){ const s = String(v ?? ""); return /[",\n]/.test(s) ? `"${s.replace(/"/g,'""')}"` : s; }
+function buildTables(){
+  const p = S.plan, R = compute(p), N=R.N;
+  const r2 = v => Math.round(v*100)/100;
+  const pc = v => (v*100).toFixed(2)+"%";
+  const out = [];
+  out.push(["Bucket Allocation Planner"]); if((p.client.firm||"").trim()) out.push([`Firm: ${p.client.firm.trim()}`]); if((p.client.advisor||"").trim()) out.push([`Advisor: ${p.client.advisor.trim()}`]); if(p.client.name.trim()) out.push([`Household: ${p.client.name.trim()}`]); if(clientNames(p)) out.push([`Clients: ${clientNames(p)}`]); out.push([fmtDate(p.client.date)]); out.push([`Annual distribution need: ${+p.client.annual?Math.round(p.client.annual):"Not set"}`]); out.push([`Fill method: ${p.method==="prorata"?"Pro rata":"Sequential by account order"}`]); out.push([]);
+  out.push(["Bucket","Target $","Allocated $","% of plan"]);
+  p.buckets.forEach((b,k)=>out.push([b.name, k===N-1?"Remainder":r2(R.targets[k]), r2(R.bucketTotals[k]), pc(R.total?R.bucketTotals[k]/R.total:0)]));
+  out.push([]);
+  const h = ["Account","Acct #","Type","Owner","Value"]; p.buckets.forEach(b=>{ h.push(`${shortB(b)} $`, `${shortB(b)} %`); });
+  out.push(h);
+  R.inc.forEach(a=>{ const row=[a.name,a.num,a.type,a.owner,r2(a.value)]; R.alloc[a.id].forEach(x=>row.push(r2(x), pc(a.value?x/a.value:0))); out.push(row); });
+  const tr = ["Plan total","","","",r2(R.total)]; R.bucketTotals.forEach(x=>tr.push(r2(x), pc(R.total?x/R.total:0))); out.push(tr);
+  if(R.exc.length){ out.push([]); out.push(["Not included"]); R.exc.forEach(a=>out.push([a.name,a.num,a.type,a.owner,r2(a.value)])); }
+  out.push([]);
+  out.push(["Account","Acct #","Bucket","Strategy","Model %","Amount $","% of account"]);
+  const TP = tradePcts(R);
+  R.rows.forEach(r=>{ const m = p.buckets[r.k].model.find(x=>x.s===r.s); out.push([r.a.name,r.a.num,shortB(p.buckets[r.k]),r.s,m?(+m.p)+"%":"",r2(r.amt),TP.get(r)+"%"]); });
+  return out;
+}
+async function offerDownload(filename, data){
+  let dl=null; try{ if(window.claude && window.claude.use) dl = await window.claude.use("downloads"); }catch(_){}
+  if(!dl){
+    try{
+      const type = filename.endsWith(".csv") ? "text/csv" : filename.endsWith(".pdf") ? "application/pdf" : "application/json";
+      const url = URL.createObjectURL(new Blob([data],{type}));
+      const a = document.createElement("a"); a.href=url; a.download=filename; document.body.appendChild(a); a.click(); a.remove();
+      setTimeout(()=>URL.revokeObjectURL(url),4000);
+    }catch(_){ toast("Download was blocked here. Use Copy tables for Excel instead."); }
+    return;
+  }
+  try{ await dl.save({filename, data}); }catch(err){ if(err && err.code==="declined") return; toast(err && err.code==="rate_limited" ? "A download is already waiting for your approval" : "Couldn't prepare the download"); }
+}
+function safeName(){ return (S.plan.client.name||"").replace(/[^A-Za-z0-9 _-]+/g,"").trim().replace(/\s+/g,"-"); }
+function fileBase(kind){ const n=safeName(); return n ? `${n}-${kind}` : `Bucket-Allocation-${kind}`; }
+$("#exportPop").addEventListener("click", async e=>{
+  const t = e.target.closest("[data-exp]"); if(!t) return; const x = t.dataset.exp; openPop("export",false);
+  if(x==="csv"){ await offerDownload(`${fileBase("Plan")}-${S.plan.client.date||todayISO()}.csv`, buildTables().map(r=>r.map(csvCell).join(",")).join("\r\n")); }
+  if(x==="json"){ await offerDownload(`${fileBase("Plan")}.json`, JSON.stringify({app:"bucket-allocation-planner",version:1,plan:S.plan,library:S.lib},null,2)); }
+  if(x==="copy"){
+    const tsv = buildTables().map(r=>r.map(v=>String(v??"").replace(/\t|\n/g," ")).join("\t")).join("\n");
+    try{ await navigator.clipboard.writeText(tsv); toast("Copied. Paste into Excel."); }
+    catch(_){ fallbackCopy(tsv); }
+  }
+  if(x==="import"){ $("#importFile").click(); }
+  if(x==="pdf"){ await downloadPdf(); }
+  if(x==="print"){ printPlan(); }
+});
+function fallbackCopy(text){
+  const ta = document.createElement("textarea"); ta.value=text; ta.setAttribute("readonly",""); ta.style.position="fixed"; ta.style.opacity="0"; document.body.appendChild(ta); ta.select();
+  let ok=false; try{ ok = document.execCommand("copy"); }catch(_){}
+  ta.remove(); toast(ok?"Copied. Paste into Excel.":"Copy was blocked here. Try Download CSV.");
+}
+$("#importFile").addEventListener("change", e=>{
+  const f = e.target.files[0]; if(!f) return;
+  const rd = new FileReader();
+  rd.onload = ()=>{
+    try{
+      const j = JSON.parse(rd.result); const p = j.plan || j;
+      if(!p.accounts || !p.buckets) throw new Error("shape");
+      if(Array.isArray(j.library)) j.library.forEach(l=>{ if(l && l.name && !S.lib.some(x=>x.name===l.name)) S.lib.push({name:String(l.name),cat:CATS.includes(l.cat)?l.cat:"Other"}); });
+      p.id = p.id && p.id!=="sample" ? p.id : "p_"+uid()+Date.now().toString(36); p.sample=false;
+      loadPlan(p,true); saveLib(); toast(`Opened ${p.client?.name||"plan"}. Save to keep it in your plans.`);
+    }catch(_){ toast("That file isn't a Bucket Allocation Planner plan"); }
+    e.target.value="";
+  };
+  rd.readAsText(f);
+});
+
+/* ---------- PDF writer (built in; standard Helvetica, no library) ---------- */
+const HW = {"R":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,278,278,355,556,556,889,667,191,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,278,278,584,584,584,556,1015,667,667,722,722,667,611,778,722,278,500,667,556,833,722,778,667,778,722,667,611,722,667,944,667,667,611,278,278,278,469,556,333,556,556,500,556,556,278,556,556,222,222,500,222,833,556,556,556,556,333,500,278,556,500,722,500,500,500,334,260,334,584,350,556,350,222,556,333,1000,556,556,333,1000,667,333,1000,350,611,350,350,222,222,333,333,350,556,1000,333,1000,500,333,944,350,500,667,278,333,556,556,556,556,260,556,333,737,370,556,584,333,737,333,400,584,333,333,333,556,537,278,333,333,365,556,834,834,834,611,667,667,667,667,667,667,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,500,556,556,556,556,278,278,278,278,556,556,556,556,556,556,556,584,611,556,556,556,556,500,556,500],"B":[0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,278,333,474,556,556,889,722,238,333,333,389,584,278,333,278,278,556,556,556,556,556,556,556,556,556,556,333,333,584,584,584,611,975,722,722,722,722,667,611,778,722,278,556,722,611,833,722,778,667,778,722,667,611,722,667,944,667,667,611,333,278,333,584,556,333,556,611,556,611,556,333,611,611,278,278,556,278,889,611,611,611,611,389,556,333,611,556,778,556,556,500,389,280,389,584,350,556,350,278,556,500,1000,556,556,333,1000,667,333,1000,350,611,350,350,278,278,500,500,350,556,1000,333,1000,556,333,944,350,500,667,278,333,556,556,556,556,280,556,333,737,370,556,584,333,737,333,400,584,333,333,333,611,556,278,333,333,365,556,834,834,834,611,722,722,722,722,722,722,1000,722,667,667,667,667,278,278,278,278,722,722,778,778,778,778,778,584,778,722,722,722,722,667,667,611,556,556,556,556,556,556,889,556,556,556,556,556,278,278,278,278,611,611,611,611,611,611,611,584,611,611,611,611,611,556,611,556]};
+const WIN = {"·":0xB7,"•":0x95,"–":0x96,"—":0x97,"‘":0x91,"’":0x92,"“":0x93,"”":0x94,"…":0x85," ":0x20,"≈":0x7E};
+function winCodes(str){ const out=[]; for(const ch of String(str??"")){ const c=ch.codePointAt(0); if(c>=32&&c<127) out.push(c); else if(WIN[ch]!=null) out.push(WIN[ch]); else if(c>=160&&c<=255) out.push(c); else out.push(63); } return out; }
+function tw(str,size,bold){ const t=HW[bold?"B":"R"]; return winCodes(str).reduce((s,c)=>s+(t[c]||556),0)*size/1000; }
+function fitText(str,size,bold,maxW){ str=String(str??""); if(!maxW || tw(str,size,bold)<=maxW) return str; while(str.length>1 && tw(str+"…",size,bold)>maxW) str=str.slice(0,-1); return str.replace(/\s+$/,"")+"…"; }
+function wrapText(str,size,bold,maxW){ const words=String(str??"").split(/\s+/); const lines=[]; let cur=""; words.forEach(w=>{ const t=cur?cur+" "+w:w; if(tw(t,size,bold)<=maxW||!cur) cur=t; else { lines.push(cur); cur=w; } }); if(cur) lines.push(cur); return lines; }
+function rgbOf(hex){ const h=hex.replace("#",""); return [0,2,4].map(i=>(parseInt(h.slice(i,i+2),16)/255).toFixed(3)).join(" "); }
+const n2 = v => (+v).toFixed(2);
+function PdfDoc(){ this.pages=[]; this.p=null; }
+PdfDoc.prototype.addPage=function(landscape){ const p={w:landscape?792:612,h:landscape?612:792,ops:[]}; this.pages.push(p); this.p=p; return p; };
+PdfDoc.prototype.text=function(x,y,str,o){
+  o=o||{}; const size=o.size||10, bold=!!o.bold; let s=fitText(str,size,bold,o.maxW);
+  if(o.align==="right") x-=tw(s,size,bold); else if(o.align==="center") x-=tw(s,size,bold)/2;
+  const hex=winCodes(s).map(c=>c.toString(16).padStart(2,"0")).join("");
+  this.p.ops.push(`BT /${bold?"F2":"F1"} ${n2(size)} Tf ${rgbOf(o.color||"#111816")} rg ${n2(x)} ${n2(this.p.h-y)} Td <${hex}> Tj ET`);
+};
+PdfDoc.prototype.rect=function(x,y,w,h,o){
+  o=o||{}; const parts=[];
+  if(o.fill) parts.push(`${rgbOf(o.fill)} rg`);
+  if(o.stroke) parts.push(`${rgbOf(o.stroke)} RG ${n2(o.lw||0.75)} w`);
+  parts.push(`${n2(x)} ${n2(this.p.h-y-h)} ${n2(w)} ${n2(h)} re ${o.fill&&o.stroke?"B":o.fill?"f":"S"}`);
+  this.p.ops.push(parts.join(" "));
+};
+PdfDoc.prototype.line=function(x1,y1,x2,y2,color,lw){ this.p.ops.push(`${rgbOf(color||"#D3DAD6")} RG ${n2(lw||0.5)} w ${n2(x1)} ${n2(this.p.h-y1)} m ${n2(x2)} ${n2(this.p.h-y2)} l S`); };
+PdfDoc.prototype.blob=function(meta){
+  const objs=[]; const n=this.pages.length;
+  const kids=this.pages.map((_,i)=>`${5+i*2} 0 R`).join(" ");
+  objs.push(`<< /Type /Catalog /Pages 2 0 R >>`);
+  objs.push(`<< /Type /Pages /Kids [${kids}] /Count ${n} >>`);
+  objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>`);
+  objs.push(`<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>`);
+  this.pages.forEach((p,i)=>{
+    const content=p.ops.join("\n");
+    objs.push(`<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${p.w} ${p.h}] /Resources << /Font << /F1 3 0 R /F2 4 0 R >> >> /Contents ${6+i*2} 0 R >>`);
+    objs.push(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+  });
+  const infoHex = s => "<FEFF"+Array.from(String(s)).map(ch=>{ const c=ch.codePointAt(0); return c>0xFFFF?"003F":c.toString(16).padStart(4,"0"); }).join("")+">";
+  objs.push(`<< /Title ${infoHex(meta.title||"")} /Producer ${infoHex("Bucket Allocation Planner")} >>`);
+  let out="%PDF-1.4\n"; const offs=[];
+  objs.forEach((o,i)=>{ offs.push(out.length); out+=`${i+1} 0 obj\n${o}\nendobj\n`; });
+  const xref=out.length;
+  out+=`xref\n0 ${objs.length+1}\n0000000000 65535 f \n`+offs.map(o=>String(o).padStart(10,"0")+" 00000 n \n").join("");
+  out+=`trailer\n<< /Size ${objs.length+1} /Root 1 0 R /Info ${objs.length} 0 R >>\nstartxref\n${xref}\n%%EOF`;
+  return new Blob([out],{type:"application/pdf"});
+};
+
+/* ---------- plan report ---------- */
+function buildPlanPdf(){
+  const p=S.plan, R=compute(p), N=R.N, doc=new PdfDoc();
+  const M=40, FOOT=30;
+  const C={ink:"#111816",muted:"#56615C",faint:"#8A948F",line:"#D3DAD6",rule:"#AEB8B3",soft:"#EEF1EF",bad:"#B0281F",warn:"#9A6212",good:"#2C7A4B"};
+  const BC=["#2B7BA0","#BF8829","#3B8656","#8659A4","#B4513A"];
+  const hh=(p.client.name||"").trim(); const title="Bucket Allocation Planner";
+  let pg, y, W, H;
+  const newPage = land => { pg=doc.addPage(land); W=pg.w; H=pg.h; y=M; };
+  const room = () => H-FOOT-M/2-y;
+  const pct = (a,b) => b ? (a/b*100).toFixed(1)+"%" : "";
+  function section(t, need){
+    if(room() < (need||60)) newPage(pg.w>pg.h);
+    y+=12; doc.text(M,y,t.toUpperCase(),{size:8,bold:true,color:C.muted}); y+=8;
+  }
+  function table(cols, rows, contTitle){
+    const tot=cols.reduce((s,c)=>s+c.w,0), x0=M;
+    const hl = cols.map(c=>{ const ls=wrapText(c.t.toUpperCase(),6.8,true,c.w-6); return ls.length>2 ? [ls[0], ls.slice(1).join(" ")] : ls; });
+    const maxL = Math.max(1,...hl.map(l=>l.length)), anySub = cols.some(c=>c.sub);
+    const head=()=>{ let x=x0; cols.forEach((c,i)=>{ const tx=c.a==="r"?x+c.w-4:x+4, al=c.a==="r"?"right":"left";
+        hl[i].forEach((l,j)=>doc.text(tx, y+9+j*8, l, {size:6.8,bold:true,color:C.muted,align:al,maxW:c.w-6}));
+        if(c.sub) doc.text(tx, y+9+maxL*8, c.sub, {size:6.6,color:C.faint,align:al,maxW:c.w-6});
+        x+=c.w; }); y+=5+maxL*8+(anySub?8:0); doc.line(x0,y,x0+tot,y,C.rule,0.75); };
+    head();
+    rows.forEach(r=>{
+      const hasSub=r.cells.some(c=>c&&typeof c==="object"&&c.sub);
+      const rh = r.kind==="group" ? 16 : hasSub ? 23 : 16;
+      if(room()<rh){ newPage(pg.w>pg.h); if(contTitle){ doc.text(M,y+8,(contTitle+" (continued)").toUpperCase(),{size:8,bold:true,color:C.muted}); y+=16; } head(); }
+      if(r.kind==="group"){
+        doc.rect(x0,y,tot,rh,{fill:C.soft});
+        if(r.color) doc.rect(x0+5,y+5,6,6,{fill:r.color});
+        doc.text(x0+(r.color?15:5), y+11, r.cells[0], {size:8,bold:true,maxW:tot-22});
+        y+=rh; return;
+      }
+      if(r.kind==="total") doc.line(x0,y,x0+tot,y,C.ink,0.9);
+      let x=x0;
+      r.cells.forEach((c,i)=>{
+        const col=cols[i]; if(!col) return;
+        const o=(c&&typeof c==="object")?c:{main:c};
+        const right=col.a==="r"; const off=o.swatch?11:0;
+        if(o.swatch) doc.rect(x+5,y+6,6,6,{fill:o.swatch});
+        const tx = right ? x+col.w-4 : x+4+off;
+        const color = o.color || (r.kind==="sub"||r.muted ? C.muted : C.ink);
+        doc.text(tx, y+11, o.main??"", {size:8.2,bold:r.kind==="total"||o.bold,color,align:right?"right":"left",maxW:col.w-8-off});
+        if(o.sub) doc.text(tx, y+19.5, o.sub, {size:6.8,color:o.subColor||C.faint,align:right?"right":"left",maxW:col.w-8-off});
+        x+=col.w;
+      });
+      y+=rh;
+      if(r.kind!=="total") doc.line(x0,y,x0+tot,y,C.line,0.5);
+    });
+    y+=4;
+  }
+
+  /* page 1: header */
+  newPage(false);
+  const CW = W-2*M;
+  const firm=(p.client.firm||"").trim(), adv=(p.client.advisor||"").trim();
+  doc.text(M,y+18,title,{size:19,bold:true,maxW:CW-200});
+  const rl=[]; if(firm) rl.push([firm,{size:9.5,bold:true,color:C.ink}]); if(adv) rl.push([`Prepared by ${adv}`,{size:8.5,color:C.muted}]); rl.push([fmtDate(p.client.date),{size:8.5,color:C.muted}]);
+  rl.forEach((l,i)=>doc.text(W-M, y+8+i*11, l[0], {...l[1],align:"right",maxW:190}));
+  y+=Math.max(30, 8+rl.length*11+4);
+  const meta=[]; if(hh) meta.push(`Household: ${hh}`); if(clientNames(p)) meta.push(`Clients: ${clientNames(p)}`);
+  meta.push(`Annual distribution need: ${+p.client.annual?$f(p.client.annual):"Not set"}`);
+  meta.push(p.method==="prorata"?"Pro rata fill":"Sequential fill by account order");
+  doc.text(M,y,meta.join("     ·     "),{size:8.8,color:C.muted,maxW:CW}); y+=10;
+  doc.line(M,y,W-M,y,C.rule,0.75); y+=6;
+  R.warnings.forEach(w=>{ wrapText("• "+w.msg,8.3,false,CW).forEach(l=>{ y+=11; doc.text(M,y,l,{size:8.3,color:w.lvl==="bad"?C.bad:C.warn}); }); });
+  if(R.warnings.length) y+=6;
+
+  /* KPIs */
+  const kp=[["Plan assets",$f(R.total),`${R.inc.length} account${R.inc.length===1?"":"s"} in plan`],["Not included",$f(R.excludedTotal),`${R.exc.length} account${R.exc.length===1?"":"s"}`],["Household total",$f(R.total+R.excludedTotal),"All accounts listed"]];
+  const kw=CW/3; y+=4;
+  kp.forEach((k,i)=>{ const x=M+i*kw; if(i) doc.line(x,y+2,x,y+40,C.line,0.5); const px=x+(i?12:0);
+    doc.text(px,y+10,k[0].toUpperCase(),{size:6.8,bold:true,color:C.muted}); doc.text(px,y+27,k[1],{size:14.5,bold:true}); doc.text(px,y+38,k[2],{size:7.5,color:C.muted}); });
+  y+=48; doc.line(M,y,W-M,y,C.line,0.5);
+
+  /* buckets */
+  section("Buckets");
+  const ann=+p.client.annual||0;
+  table([{t:"Bucket",w:CW-80-80-58-62-72},{t:"Target",w:80,a:"r"},{t:"Allocated",w:80,a:"r"},{t:"% of plan",w:58,a:"r"},{t:"Years of dist.",w:62,a:"r"},{t:"Status",w:72,a:"r"}],
+    p.buckets.map((b,k)=>{ const got=R.bucketTotals[k], t=R.targets[k], last=k===N-1, d=got-t;
+      const st = last?{main:"Remainder",color:C.muted}:Math.abs(d)<=0.5?{main:"On target",color:C.good,bold:true}:d>0?{main:"Over "+$f(d),color:C.warn,bold:true}:{main:"Short "+$f(-d),color:C.bad,bold:true};
+      const models=b.model.filter(m=>m.s).map(m=>`${m.s} ${+m.p||0}%`).join(", ");
+      return {cells:[{main:b.name,swatch:BC[k%5],bold:true,sub:models||"No strategies"}, last?{main:"Remainder",color:C.muted}:$f(t), $f(got), pct(got,R.total), ann?(got/ann).toFixed(1):"–", st]};
+    }));
+
+  /* allocation by account */
+  section("Bucket allocation by account", 90);
+  const bw=Math.min(82,Math.floor((CW-72-150)/N)); const aw=CW-72-bw*N;
+  const aCols=[{t:"Account",w:aw},{t:"Value",w:72,a:"r"}].concat(p.buckets.map(b=>({t:shortB(b),w:bw,a:"r"})));
+  const acctCell = a => ({main:(a.name||"Unnamed account")+(a.num?"  ••"+a.num:""), sub:`${a.type}${a.owner?" · "+a.owner:""}`});
+  const aRows=R.inc.map(a=>({cells:[acctCell(a),$f(a.value)].concat(R.alloc[a.id].map(x=>x>0.5?{main:$f(x),sub:pct(x,a.value)}:"–"))}));
+  if(R.exc.length){ aRows.push({kind:"group",cells:["Not included in plan"]}); R.exc.forEach(a=>aRows.push({muted:true,cells:[acctCell(a),$f(a.value)]})); }
+  aRows.push({kind:"total",cells:["Plan total",$f(R.total)].concat(R.bucketTotals.map(x=>({main:$f(x),sub:pct(x,R.total)})))});
+  table(aCols,aRows,"Bucket allocation by account");
+
+  /* strategy grid (like the spreadsheet) */
+  if(R.inc.length){
+    const land = R.inc.length+1 > 6;
+    const per = land ? 7 : 6;
+    const nCh = Math.ceil(R.inc.length/per), size = Math.ceil(R.inc.length/nCh);
+    const chunks=[]; for(let i=0;i<R.inc.length;i+=size) chunks.push(R.inc.slice(i,i+size));
+    const cellAmt=(a,k,s)=>R.rows.filter(r=>r.a.id===a.id&&r.k===k&&r.s===s).reduce((t,r)=>t+r.amt,0);
+    chunks.forEach((accts,ci)=>{
+      newPage(land); const cw=W-2*M; const withTotal = ci===chunks.length-1;
+      section(chunks.length>1?`Strategy allocation grid (${ci+1} of ${chunks.length})`:"Strategy allocation grid", 60);
+      const nCols=accts.length+(withTotal?1:0); const colW=Math.min(96,Math.floor((cw-150)/nCols)); const sW=cw-40-colW*nCols;
+      const cols=[{t:"Strategy",w:sW},{t:"Model",w:40,a:"r"}].concat(accts.map(a=>({t:a.name||"Account",sub:a.num?"••"+a.num:"",w:colW,a:"r"}))).concat(withTotal?[{t:"Total",w:colW,a:"r"}]:[]);
+      const rows=[];
+      p.buckets.forEach((b,k)=>{
+        rows.push({kind:"group",color:BC[k%5],cells:[b.name]});
+        const names=[]; b.model.forEach(m=>{ if(m.s&&!names.includes(m.s)) names.push(m.s); });
+        R.rows.filter(r=>r.k===k&&r.flag).forEach(r=>{ if(!names.includes(r.s)) names.push(r.s); });
+        names.forEach(s=>{ const m=b.model.find(x=>x.s===s); const vals=accts.map(a=>cellAmt(a,k,s)); const all=R.inc.reduce((t,a)=>t+cellAmt(a,k,s),0);
+          rows.push({cells:[{main:s,color:m?undefined:C.bad},m?(+m.p||0)+"%":"–"].concat(vals.map((v,i)=>Math.abs(v)>0.5?(isTiny(v,+accts[i].value||0)?{main:$f(v),sub:pct(v,accts[i].value),color:C.bad,subColor:C.bad,bold:true}:{main:$f(v),sub:pct(v,accts[i].value)}):"–")).concat(withTotal?[Math.abs(all)>0.5?$f(all):"–"]:[])}); });
+        const bt=accts.map(a=>R.alloc[a.id][k]);
+        rows.push({kind:"sub",cells:["Total "+shortB(b),+R.modelSums[k].toFixed(2)+"%"].concat(bt.map((v,i)=>v>0.5?{main:$f(v),sub:pct(v,accts[i].value)}:"–")).concat(withTotal?[$f(R.bucketTotals[k])]:[])});
+      });
+      rows.push({kind:"total",cells:["Account totals",""].concat(accts.map(a=>$f(a.value))).concat(withTotal?[$f(R.total)]:[])});
+      table(cols,rows,"Strategy allocation grid");
+    });
+
+    /* trade detail per account */
+    const TPp = tradePcts(R);
+    newPage(false);
+    section("Trade detail by account");
+    const tcw=W-2*M;
+    R.inc.forEach(a=>{
+      const rs=R.rows.filter(r=>r.a.id===a.id&&Math.abs(r.amt)>0.5);
+      const groups=p.buckets.filter((b,k)=>rs.some(r=>r.k===k)).length;
+      const need=26+13+rs.length*16+groups*16+10;
+      if(room()<need && need < H-2*M-FOOT) newPage(false);
+      else if(room()<60) newPage(false);
+      y+=6;
+      doc.rect(M,y,tcw,22,{fill:C.soft});
+      doc.text(M+6,y+14,a.name||"Unnamed account",{size:9.5,bold:true,maxW:tcw*0.45});
+      const nmW=Math.min(tw(a.name||"Unnamed account",9.5,true),tcw*0.45);
+      doc.text(M+14+nmW,y+14,[a.num?"••"+a.num:"",a.type,a.owner].filter(Boolean).join("  ·  "),{size:7.8,color:C.muted,maxW:tcw*0.55-100});
+      doc.text(W-M-6,y+14,$f(a.value),{size:9.5,bold:true,align:"right"});
+      y+=24;
+      const rows=[];
+      p.buckets.forEach((b,k)=>{ const br=rs.filter(r=>r.k===k); if(!br.length) return;
+        rows.push({kind:"group",color:BC[k%5],cells:[`${b.name}  ·  ${$f(R.alloc[a.id][k])}  ·  ${br.reduce((t,r)=>t+(r.amt>0?TPp.get(r):0),0)}% of account`]});
+        br.forEach(r=>{ const m=b.model.find(x=>x.s===r.s); const t=!r.flag&&isTiny(r.amt,+a.value||0); const red=t?{color:C.bad,bold:true}:{};
+          rows.push({cells:[{main:r.s,color:(r.flag||t)?C.bad:undefined,bold:t},m?(+m.p||0)+"% of bucket":"–",{main:$f(r.amt),...red},{main:TPp.get(r)+"%",...red}]}); });
+      });
+      if(!rows.length) rows.push({cells:[{main:"No value to allocate",color:C.muted},"","",""]});
+      table([{t:"Strategy",w:tcw-110-90-80},{t:"Model",w:110,a:"r"},{t:"Amount",w:90,a:"r"},{t:"% of account",w:80,a:"r"}],rows,a.name||"Account");
+    });
+  }
+  // closing note
+  if(room()<30) newPage(false);
+  y+=10; doc.text(M,y,"Amounts are rounded to whole dollars. For planning purposes only; confirm current values before placing trades.",{size:7.5,color:C.faint,maxW:W-2*M});
+
+  // footers
+  const total=doc.pages.length;
+  doc.pages.forEach((pp,i)=>{ doc.p=pp;
+    doc.line(M,pp.h-M+6,pp.w-M,pp.h-M+6,C.line,0.5);
+    doc.text(M,pp.h-M+18,`${firm?firm+"  ·  ":""}${hh?hh+"  ·  ":""}Bucket Allocation Plan  ·  ${fmtDate(p.client.date)}`,{size:7,color:C.faint,maxW:pp.w-2*M-70});
+    doc.text(pp.w-M,pp.h-M+18,`Page ${i+1} of ${total}`,{size:7,color:C.faint,align:"right"});
+  });
+  return doc.blob({title: hh ? `${hh} - Bucket Allocation Plan` : "Bucket Allocation Plan"});
+}
+async function downloadPdf(){
+  let blob;
+  try{ blob = buildPlanPdf(); }catch(err){ console.error(err); toast("Couldn't build the PDF. Try Print instead."); return; }
+  await offerDownload(`${fileBase("Plan")}-${S.plan.client.date||todayISO()}.pdf`, blob);
+}
+
+/* ---------- PDF / print ---------- */
+let titleBefore = null;
+function endPrint(){ if(!S.printMode) return; S.printMode=false; if(titleBefore!=null){ document.title=titleBefore; titleBefore=null; } renderResults(); }
+function printPlan(){
+  S.printMode = true; renderResults();
+  titleBefore = document.title;
+  document.title = `${fileBase("Plan").replace(/-/g," ")} ${S.plan.client.date||todayISO()}`;
+  setTimeout(()=>{
+    try{ window.print(); }catch(_){ toast("Printing isn't available here. Open the planner in Safari or Chrome."); }
+  }, 60);
+}
+window.addEventListener("afterprint", endPrint);
+
+/* ---------- boot ---------- */
+try{ const v = localStorage.getItem("bap_view"); if(v==="matrix"||v==="account") S.stratView=v; }catch(_){}
+const draft = loadDraft();
+if(draft){ if(draft.plan && draft.plan.client && /^((Sample|Example) )?Household$/.test(draft.plan.client.name)) draft.plan.client.name=""; S.plan = normalizePlan(draft.plan); S.dirty = !!draft.dirty; } else { S.plan = samplePlan(); }
+renderAll(); renderOpenPop(); updateStatus();
+initStorage();
+})();
+</script>
+
+</body>
+</html>
